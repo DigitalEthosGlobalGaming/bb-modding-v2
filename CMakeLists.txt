@@ -31,6 +31,7 @@ add_library(bbmod_host STATIC
     src/host/src/ui_slots.c
     src/host/src/native_menu.c
     src/host/src/native_menu_bridge.c
+    src/host/src/text_entry.c
     src/host/src/pad.c
     src/host/src/platform_posix.c
     src/host/src/platform_win.c

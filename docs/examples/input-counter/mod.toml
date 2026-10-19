@@ -2,7 +2,7 @@
 id = "example.input-counter"
 name = "Shared Input Counter"
 version = "0.1.0"
-abi = "1.3"
+abi = "1.9"
 dll = "input_counter.dll"
 [load]
 hot_reload = true

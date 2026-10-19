@@ -2,7 +2,7 @@
 id = "example.hello-rust"
 name = "Hello (Rust)"
 version = "0.1.0"
-abi = "1.0"
+abi = "1.9"
 dll = "hello_rust.dll"
 
 [load]

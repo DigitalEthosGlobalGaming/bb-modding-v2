@@ -1,8 +1,10 @@
 //! Declarative native menu definitions. ABI 1.8. Registrations are owned and
 //! copied by the host. Capabilities distinguish registration from native rendering.
-//! Open lists are frozen; changes appear when the native screen is rebuilt.
+//! ABI 1.9 adds read-only Info rows. CAP_LIVE means the experimental adapter
+//! refreshes open custom lists; other adapters retain frozen views.
 use crate::{check,sys,Cx,Error,Event,Id,Result};
 use core::ffi::c_char;
+pub mod controls;
 pub const EVENTS:u32=sys::BBM_EV_NATIVE_MENU;
 pub const MODS:&str="game.mods";
 pub const SYSTEM:&str="game.system";
@@ -12,10 +14,11 @@ pub const CAP_SYSTEM:u32=4;
 pub const CAP_INGAME:u32=8;
 pub const CAP_OBSERVE:u32=16;
 pub const CAP_SELECTION:u32=32;
+pub const CAP_LIVE:u32=64;
 #[repr(u32)]
 #[derive(Debug,Clone,Copy,PartialEq,Eq)]
-pub enum Kind { Screen=1, Action=2, Link=3, Toggle=4 }
-#[derive(Debug,Clone)]
+pub enum Kind { Screen=1, Action=2, Link=3, Toggle=4, Info=5 }
+#[derive(Debug,Clone,PartialEq,Eq)]
 pub struct Node {
     pub key:String,pub parent:String,pub label:String,pub help:String,pub target:String,
     pub kind:Kind,pub enabled:bool,pub order:i32,pub value:bool,
@@ -54,10 +57,12 @@ pub struct MenuEvent {
 impl Cx {
     pub fn native_menu_register(&mut self,node:&Node)->Result<Id>{
         let h=unsafe{&*self.host};if !h.has_native_menus(){return Err(Error::UNSUPPORTED)}
+        if node.kind==Kind::Info&&h.abi_minor<9{return Err(Error::UNSUPPORTED)}
         let raw=node.raw()?;let mut id=0;check(unsafe{(h.menu_register)(self.me,&raw,&mut id)})?;Ok(Id(id))
     }
     pub fn native_menu_update(&mut self,id:Id,node:&Node)->Result<()>{
         let h=unsafe{&*self.host};if !h.has_native_menus(){return Err(Error::UNSUPPORTED)}
+        if node.kind==Kind::Info&&h.abi_minor<9{return Err(Error::UNSUPPORTED)}
         check(unsafe{(h.menu_update)(self.me,id.0,&node.raw()?)})
     }
     pub fn native_menu_state(&self)->Result<State>{

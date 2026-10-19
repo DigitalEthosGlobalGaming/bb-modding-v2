@@ -1,0 +1,4 @@
+interface:
+  display_name: "Game UI Design and Integration"
+  short_description: "Design and verify polished native game interfaces"
+  default_prompt: "Use $game-ui to design and implement a usable game interface that fits the game and supports its input methods."

@@ -1,7 +1,9 @@
 use bbmod::{Cx,Event,Id,Mod,Result};
 use bbmod::native_menu::{self as menu,Change,Kind,Node};
+use bbmod::native_menu::controls::{Choice,Integer,Text};
+use std::{cell::RefCell,rc::Rc};
 const SETTINGS:&str="example.native-ui/settings";
-struct Example {dynamic:Option<Id>,logging:bool}
+struct Example {dynamic:Option<Id>,logging:bool,style:Choice,level:Integer,text:Rc<RefCell<Text>>}
 impl Mod for Example {
     fn load(cx:&mut Cx)->Result<Self>{
         cx.subscribe(menu::EVENTS)?;
@@ -21,15 +23,24 @@ impl Mod for Example {
         cx.native_menu_register(&nested)?;
         let detail=Node::new(Kind::Action,"detail-action","example.native-ui/details","Log a native selection");
         cx.native_menu_register(&detail)?;
+        let style=Choice::register(cx,"example.native-ui/style","example.native-ui/details","Example style",&["Neutral","Green","Orange"],0)?;
+        let level=Integer::register(cx,"example.native-ui/level","example.native-ui/details","Example level",0,100,1,50)?;
+        let text=Rc::new(RefCell::new(Text::register(cx,"example.native-ui/label","example.native-ui/details","Example label","Native example",96)?));
+        let text_frame=text.clone();cx.on_frame_mut(move|cx|{
+            if let Err(error)=text_frame.borrow_mut().poll(cx){cx.log_warn(&format!("Text edit failed: {error}"));}
+        })?;
         let state=cx.native_menu_state()?;
         if !state.supports(menu::CAP_LISTS){cx.log_warn("Native menu definitions registered; the experimental game adapter is not enabled. No overlay fallback.");}
         else{cx.log_info("Native menu example registered: Mods and System; engine navigation still requires in-game validation.");}
-        Ok(Self{dynamic:None,logging:true})
+        Ok(Self{dynamic:None,logging:true,style,level,text})
     }
     fn event(&mut self,cx:&mut Cx,event:&Event){
         let Some(ev)=event.native_menu() else{return};
         if self.logging{cx.log_info(&format!("native menu {:?}: screen={} owner={} key={} generation={} selection={:?}",ev.change,ev.screen,ev.owner,ev.key,ev.generation,ev.selection));}
         if ev.owner!="example.native-ui"{return}
+        if let Err(error)=self.style.handle(cx,&ev){cx.log_warn(&format!("Choice failed: {error}"));}
+        if let Err(error)=self.level.handle(cx,&ev){cx.log_warn(&format!("Integer adjustment failed: {error}"));}
+        if let Err(error)=self.text.borrow_mut().handle(cx,&ev){cx.log_warn(&format!("Cannot edit label: {error}"));}
         if ev.change==Change::ValueChanged&&ev.key=="logging"{self.logging=ev.value;}
         if ev.change==Change::Activated&&ev.key=="dynamic"{
             let result=if let Some(id)=self.dynamic {

@@ -1,6 +1,10 @@
 # bb-modding
 
 Read README.md and docs/SETUP.md for the portable workflow. Use PowerShell on Windows.
+Read docs/CONSOLIDATION.md when continuing local WIP. The complete former development
+tree is preserved under .local/work-in-progress/modding; the port still has unresolved
+merges. Relative compatibility junctions live under .local/work-in-progress. Do not follow
+them during recursive cleanup. Separate mod projects remain outside the toolkit.
 The game and installed runtime are external read-only inputs during setup; paths live in
 ignored .local/workspace.json. Never infer a path from the developer's machine.
 

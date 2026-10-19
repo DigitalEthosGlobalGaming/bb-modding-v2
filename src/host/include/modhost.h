@@ -93,6 +93,17 @@ typedef struct modhost_pad_backend {
     int (*haptics)(void *user, const float *stereo, uint32_t frames);
 } modhost_pad_backend;
 
+/* Called under the host lock, from any host caller thread. Copy all inputs;
+ * retain no mod pointers. Token identifies this dialog across delayed cancel.
+ * begin returns CONFLICT when a game/mod dialog already owns input. cancel
+ * must be idempotent and a late cancel must never close another token. */
+typedef struct modhost_text_backend {
+    void *user;
+    bbm_status (*begin)(void*,const bbm_text_request*,uint64_t*);
+    bbm_status (*poll)(void*,uint64_t,bbm_text_result*);
+    void (*cancel)(void*,uint64_t);
+} modhost_text_backend;
+
 typedef struct modhost_config {
     const char *mods_dir;  /* folder with one sub-folder per mod */
     const char *cache_dir; /* shadow copies of mod DLLs (created if missing) */
@@ -118,6 +129,7 @@ typedef struct modhost_config {
     modhost_input_backend input;
     modhost_pad_backend pad;
     int native_observation; /* opt-in verified built-in item observer; default 0 */
+    modhost_text_backend text;
 } modhost_config;
 
 typedef enum modhost_state {

@@ -90,7 +90,8 @@ typedef enum mh_res_kind {
     MH_RES_FILE,
     MH_RES_CHANNEL,
     MH_RES_PLAYER_MODIFIER,
-    MH_RES_GROUP /* several patches applied as one (XML) */
+    MH_RES_GROUP, /* several patches applied as one (XML) */
+    MH_RES_TEXT
 } mh_res_kind;
 
 typedef struct mh_res {
@@ -387,6 +388,8 @@ void mh_item_actions_cancel(struct bbm_mod*m);
 void mh_item_actions_fill(bbm_host*a);
 void mh_native_observation_start(modhost *h);
 void mh_menu_fill(bbm_host *api);
+void mh_text_fill(bbm_host *api);
+void mh_text_release(struct bbm_mod*,void*);
 void mh_menu_start(modhost *h);
 void mh_menu_tick(modhost *h);
 void mh_menu_stop(modhost *h);

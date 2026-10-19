@@ -35,6 +35,7 @@ pub mod item_actions;
 pub mod content;
 pub mod equipment;
 pub mod native_menu;
+pub mod text_entry;
 mod ui;
 
 pub use bbmod_sys as sys;
@@ -129,3 +130,5 @@ macro_rules! warn { ($cx:expr, $($t:tt)*) => { $cx.log_warn(&format!($($t)*)) };
 macro_rules! error { ($cx:expr, $($t:tt)*) => { $cx.log_error(&format!($($t)*)) }; }
 #[macro_export]
 macro_rules! debug { ($cx:expr, $($t:tt)*) => { $cx.log_debug(&format!($($t)*)) }; }
+
+

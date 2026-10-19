@@ -5,6 +5,7 @@
 #include "tcompat.h"
 static int sections,depth,found,table_open,table_rows,table_column,first_health;
 static int reference_seen,team_seen,script_seen,candidate_seen;
+static int reference_row,files_section_seen,battle_file_seen,file_buttons_seen;
 static int begin_ui(void*u,const char*t,const char*id){(void)u;(void)t;(void)id;return 1;}
 static void end_ui(void*u){(void)u;assert(depth==0);}
 static void push_ui(void*u,const char*owner,const char*key){(void)u;assert(!depth&&strstr(owner,"character-observer")&&!strcmp(key,"character-observer"));depth++;sections++;}
@@ -12,18 +13,28 @@ static void pop_ui(void*u){(void)u;assert(depth==1&&!table_open);depth--;}
 static int header_ui(void*u,const char*t){(void)u;(void)t;return 1;}
 static int checkbox_ui(void*u,const char*t,int32_t*v){(void)u;(void)t;(void)v;return 0;}
 static void text_ui(void*u,const char*t){(void)u;if(strstr(t,"36 loaded characters"))found++;if(table_open&&table_rows==1&&table_column==3)first_health=atoi(t);
- if(strstr(t,"Drowned Beast")&&strstr(t,"[reference]"))reference_seen++;
+ if(table_open&&strstr(t,"Drowned Beast")&&strstr(t,"[reference]")){reference_seen++;reference_row=1;}
  if(!strcmp(t,"Enemy1 (23)"))team_seen++;
  if(!strcmp(t,"9000 (unresolved)"))script_seen++;
  if(strstr(t,"Raw 9000 resembles Event9000 (action-state ID 462); mapping unverified"))candidate_seen++;
+ if(strstr(t,"Script files for ")&&strstr(t,"NPC row 112401"))files_section_seen++;
+ if(!strcmp(t,"dvdroot_ps4/script/m24_01_00_00.luabnd.unpacked/112000_battle.lua"))battle_file_seen++;
+}
+static int button_ui(void*u,const char*t){(void)u;
+ if(!strncmp(t,"Open ",5))file_buttons_seen++;
+ return table_open&&reference_row&&table_column==11&&!strncmp(t,"Files (",7);
 }
 static int table_begin(void*u,const char*id,const char*const*headers,uint32_t count,float height,int32_t*sort,int32_t*desc){
  (void)u;assert(!table_open&&depth==1&&!strcmp(id,"characters")&&count==15&&height==360&&!strcmp(headers[3],"HP"));*sort=3;*desc=0;table_open=1;table_rows=0;table_column=-1;return 1;
 }
-static void table_row(void*u){(void)u;assert(table_open);table_rows++;table_column=-1;}
+static void table_row(void*u){(void)u;assert(table_open);table_rows++;table_column=-1;reference_row=0;}
 static void table_column_next(void*u){(void)u;assert(table_open);table_column++;assert(table_column<15);}
 static void table_end(void*u){(void)u;assert(table_open&&table_rows==35&&table_column==14&&first_health==100);table_open=0;}
-static void draw_ui(modhost*h,int expected){sections=found=reference_seen=team_seen=script_seen=candidate_seen=0;modhost_draw_panels(h);assert(sections==expected&&found>=expected&&depth==0&&!table_open);assert(reference_seen==expected&&team_seen==expected&&script_seen==expected&&candidate_seen==expected);}
+static void draw_ui(modhost*h,int expected){sections=found=reference_seen=team_seen=script_seen=candidate_seen=0;
+ files_section_seen=battle_file_seen=file_buttons_seen=0;
+ modhost_draw_panels(h);assert(sections==expected&&found>=expected&&depth==0&&!table_open);assert(reference_seen==expected&&team_seen==expected&&script_seen==expected&&candidate_seen==expected);
+ assert(files_section_seen==expected&&battle_file_seen==expected&&file_buttons_seen>=expected*3);
+}
 int main(int argc,char**argv){
  if(argc!=2)return 2;Memory m={0};fixture(&m);p32(&m,ACTOR(1)+0x8f8,900);p32(&m,ACTOR(2)+0x8f8,100);char root[300],mods[400],cache[400];tc_tmpdir(root,sizeof root,"character-mod");snprintf(mods,sizeof mods,"%s/mods",root);snprintf(cache,sizeof cache,"%s/cache",root);
  p32(&m,ACTOR(1)+0xc80,112401);p32(&m,ACTOR(1)+0xc98,112000);p32(&m,ACTOR(1)+0x88,23);p32(&m,ACTOR(1)+0xc40,9000);
@@ -31,6 +42,7 @@ int main(int argc,char**argv){
  tc_make_mod(mods,"b",argv[1],"[mod]\nid=\"example.character-observer-b\"\nabi=\"1.6\"\ndll=\"m.dll\"\n");
  modhost_config cfg={0};cfg.mods_dir=mods;cfg.cache_dir=cache;cfg.eboot_base=BASE;cfg.eboot_size=CHAR_IMAGE_SIZE;cfg.platform.user=&m;cfg.platform.read_safe=read_host;
  cfg.ui.begin_panel=begin_ui;cfg.ui.end_panel=end_ui;cfg.ui.push_scope=push_ui;cfg.ui.pop_scope=pop_ui;cfg.ui.collapsing_header=header_ui;cfg.ui.checkbox=checkbox_ui;cfg.ui.text=text_ui;
+ cfg.ui.button=button_ui;
  cfg.ui.table_begin=table_begin;cfg.ui.table_next_row=table_row;cfg.ui.table_next_column=table_column_next;cfg.ui.table_end=table_end;
  modhost*h=modhost_create(&cfg);assert(h&&modhost_scan(h)==2);modhost_frame(h);draw_ui(h,2);
  for(int i=0;i<10;i++){assert(!modhost_reload_now(h,"example.character-observer-a"));modhost_frame(h);draw_ui(h,2);}

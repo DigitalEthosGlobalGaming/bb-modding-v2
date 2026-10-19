@@ -123,6 +123,7 @@ static void release_res(struct bbm_mod *m, mh_res *r) {
     case MH_RES_PANEL: free(r->p); break;
     case MH_RES_UI_CONTRIBUTION: free(r->p); break;
     case MH_RES_NATIVE_MENU: mh_menu_release(m,r->p); break;
+    case MH_RES_TEXT: mh_text_release(m,r->p); break;
     case MH_RES_FILE: {
         mh_file *f = r->p;
         mh_vfs_remove_owner(h, m, f->game_path);
@@ -470,6 +471,7 @@ void mh_fill_api(bbm_host *a) {
     mh_ui_slots_fill_api(a);
     mh_ui_tables_fill(a);
     mh_menu_fill(a);
+    mh_text_fill(a);
     a->log = api_log;
     a->last_error = api_last_error;
     a->alloc = api_alloc;

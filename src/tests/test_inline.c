@@ -106,9 +106,6 @@ int main(int argc, char **argv) {
     cfg.mods_dir = mods; cfg.cache_dir = cache;
     cfg.eboot_base = (uintptr_t)e; cfg.eboot_size = sz;
     cfg.log = logcb;
-    /* Busy CI runners can deschedule the caller beyond the production 500 ms
-     * drain default. Keep the same restoration checks with a bounded 5 s wait. */
-    cfg.drain_timeout_ms = 5000;
     if (coop) {
         cfg.platform.suspend_world = suspend_world;
         cfg.platform.resume_world = resume_world;

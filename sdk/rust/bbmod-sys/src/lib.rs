@@ -5,7 +5,7 @@
 use core::ffi::{c_char, c_void};
 
 pub const BBM_ABI_MAJOR: u16 = 1;
-pub const BBM_ABI_MINOR: u16 = 8;
+pub const BBM_ABI_MINOR: u16 = 10;
 
 pub type bbm_status = i32;
 pub const BBM_OK: i32 = 0;
@@ -206,7 +206,18 @@ pub struct bbm_host {
     pub menu_register: unsafe extern "C" fn(H,*const bbm_menu_node,*mut bbm_id)->S,
     pub menu_update: unsafe extern "C" fn(H,bbm_id,*const bbm_menu_node)->S,
     pub menu_state: unsafe extern "C" fn(H,*mut bbm_menu_state)->S,
+    pub text_begin: unsafe extern "C" fn(H,*const bbm_text_request,*mut bbm_id)->S,
+    pub text_poll: unsafe extern "C" fn(H,bbm_id,*mut bbm_text_result)->S,
 }
+
+#[repr(C)]
+#[derive(Clone,Copy)]
+pub struct bbm_text_request {pub size:u32,pub max_bytes:u32,pub title:[c_char;128],pub initial:[c_char;4096]}
+#[repr(C)]
+#[derive(Clone,Copy)]
+pub struct bbm_text_result {pub size:u32,pub state:u32,pub status:i32,pub reserved:u32,pub text:[c_char;4096]}
+impl Default for bbm_text_request {fn default()->Self{unsafe{core::mem::zeroed()}}}
+impl Default for bbm_text_result {fn default()->Self{unsafe{core::mem::zeroed()}}}
 
 pub const BBM_EV_NATIVE_MENU:u32=1<<20;
 #[repr(C)]
@@ -333,6 +344,7 @@ pub struct bbm_item_give_result {
 impl bbm_host {
     pub fn has_characters(&self)->bool {self.size as usize>=field_end!(characters_page)}
     pub fn has_native_menus(&self)->bool {self.size as usize>=field_end!(menu_state)}
+    pub fn has_text_entry(&self)->bool {self.size as usize>=field_end!(text_poll)}
     pub fn has_item_actions(&self)->bool {self.size as usize>=field_end!(item_give_status)}
     pub fn has_inventory(&self) -> bool { self.size as usize >= field_end!(inventory_page) }
     pub fn has_equipment(&self) -> bool { self.size as usize >= field_end!(equipment_snapshot) }

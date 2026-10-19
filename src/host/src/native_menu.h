@@ -2,7 +2,8 @@
 #ifndef MH_NATIVE_MENU_H
 #define MH_NATIVE_MENU_H
 #include "internal.h"
-#define MH_MENU_LIMIT 128
+#define MH_MENU_LIMIT 1024
+#define MH_MENU_VISIBLE_ROWS 6
 #define MH_MENU_QUEUE 128
 typedef struct mh_menu_item {
     bbm_id id;

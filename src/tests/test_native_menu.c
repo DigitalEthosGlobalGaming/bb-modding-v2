@@ -11,7 +11,7 @@ static void event(bbm_ctx *ctx,const bbm_event *e){fixture*f=(void*)ctx;assert(e
 static bbm_menu_node node(const char *key,uint32_t kind){bbm_menu_node n={.size=sizeof n,.kind=kind,.flags=BBM_MENU_ENABLED};strcpy(n.key,key);strcpy(n.parent,"game.system");strcpy(n.label,"Same label");return n;}
 static void activate(fixture*f,mh_menu_item x){f->pending[f->count++]=(bbm_menu_event){.size=sizeof(bbm_menu_event),.kind=BBM_MENU_ACTIVATED,.node=x.id,.revision=x.version};}
 int main(void){
-    fixture *f=calloc(1,sizeof*f),aevents={0},bevents={0};assert(f);
+    fixture *f=calloc(1,sizeof*f);static fixture aevents,bevents;assert(f);
     modhost_config cfg={0};cfg.cache_dir="native-menu-test-cache";cfg.mods_dir="native-menu-no-mods";
     modhost*h=modhost_create(&cfg);assert(h);h->mods=calloc(2,sizeof*h->mods);h->nmods=h->capmods=2;
     strcpy(h->mods[0].m.id,"z.mod");strcpy(h->mods[1].m.id,"a.mod");
@@ -28,6 +28,9 @@ int main(void){
     strcpy(n.parent,"game.system");n.label[0]=(char)0xc0;n.label[1]=(char)0x80;n.label[2]=0;assert(h->api.menu_register(&a,&n,&tmp)==BBM_ERR_ARG);
     n=node("same",BBM_MENU_ACTION);f->busy=1;mh_menu_tick(h);assert(f->copy.count==0);f->busy=0;mh_menu_tick(h);
     assert(f->copy.count==2&&!strcmp(f->copy.items[0].owner,"a.mod"));
+    uint64_t unchanged=f->copy.revision;
+    n.label[sizeof n.label-1]='x'; /* semantically unused storage */
+    assert(!h->api.menu_update(&a,aid,&n));mh_menu_tick(h);assert(f->copy.revision==unchanged);
     mh_menu_item old=f->copy.items[1];activate(f,old);mh_menu_tick(h);
     assert(aevents.events[BBM_MENU_ACTIVATED]==1&&bevents.events[BBM_MENU_ACTIVATED]==1&&!strcmp(aevents.last.owner,"z.mod"));
     n.flags=0;assert(!h->api.menu_update(&a,aid,&n));activate(f,old);mh_menu_tick(h);assert(aevents.events[BBM_MENU_ACTIVATED]==1);
@@ -39,7 +42,21 @@ int main(void){
     f->pending[f->count++]=(bbm_menu_event){.kind=BBM_MENU_OPENED,.generation=4};strcpy(f->pending[0].screen,"Inventory");
     mh_menu_tick(h);assert(!h->api.menu_state(&a,&state)&&state.generation==4&&!strcmp(state.screen,"Inventory"));
     mh_res_release_all(&a);activate(f,old);mh_menu_tick(h);assert(aevents.events[BBM_MENU_ACTIVATED]==1);
+    n=node("information",BBM_MENU_INFO);assert(!h->api.menu_register(&b,&n,&tmp));mh_menu_tick(h);
+    mh_menu_item info={0};for(size_t i=0;i<f->copy.count;i++)if(f->copy.items[i].id==tmp)info=f->copy.items[i];assert(info.id);
+    unsigned before=aevents.events[BBM_MENU_ACTIVATED];activate(f,info);mh_menu_tick(h);assert(aevents.events[BBM_MENU_ACTIVATED]==before);
     for(int i=0;i<20;i++){mh_res_release_all(&b);n=node("same",BBM_MENU_ACTION);assert(!h->api.menu_register(&b,&n,&bid));mh_menu_tick(h);assert(f->copy.count==1&&b.nres==1);}
-    mh_res_release_all(&b);mh_menu_tick(h);assert(f->copy.count==0);h->mods[0].inst=h->mods[1].inst=NULL;
+    mh_res_release_all(&b);mh_menu_tick(h);assert(f->copy.count==0);
+    /* All converted examples must fit together. Verify full publication, a
+     * bounded failure at capacity, and independent owner recovery after unload. */
+    for(size_t i=0;i<MH_MENU_LIMIT;i++){
+        char label[64];snprintf(label,sizeof label,"capacity-%zu",i);
+        n=node(label,BBM_MENU_INFO);assert(!h->api.menu_register(i<MH_MENU_LIMIT/2?&a:&b,&n,&tmp));
+    }
+    mh_menu_tick(h);assert(f->copy.count==MH_MENU_LIMIT);
+    n=node("over-capacity",BBM_MENU_INFO);assert(h->api.menu_register(&a,&n,&tmp)==BBM_ERR_BUDGET);
+    mh_res_release_all(&a);assert(!h->api.menu_register(&a,&n,&tmp));mh_menu_tick(h);
+    assert(f->copy.count==MH_MENU_LIMIT/2+1&&b.nres==MH_MENU_LIMIT/2);
+    mh_res_release_all(&a);mh_res_release_all(&b);h->mods[0].inst=h->mods[1].inst=NULL;
     modhost_destroy(h);free(f);puts("native menu registry: namespace, order, ownership, stale events, toggle fanout, busy retry, 20 reload cycles: OK");return 0;
 }

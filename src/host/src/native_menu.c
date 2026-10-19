@@ -42,7 +42,7 @@ static int path(const char *s) {
 static bbm_status valid(bbm_handle m,const bbm_menu_node *n) {
     if(!m||!m->host||!m->host->menu||!m->entry||!n||n->size!=sizeof *n||m->faulted||m->bypassed)return BBM_ERR_ARG;
     if(!key(n->key,sizeof n->key)||!path(n->parent)||!text(n->label,sizeof n->label,0)||
-       !text(n->help,sizeof n->help,1)||n->flags&~BBM_MENU_ENABLED||n->kind<1||n->kind>4)return BBM_ERR_ARG;
+       !text(n->help,sizeof n->help,1)||n->flags&~BBM_MENU_ENABLED||n->kind<1||n->kind>BBM_MENU_INFO)return BBM_ERR_ARG;
     if(n->kind==BBM_MENU_LINK){if(!path(n->target))return BBM_ERR_ARG;}
     else if(n->target[0])return BBM_ERR_ARG;
     if(n->kind==BBM_MENU_TOGGLE&&(n->value<0||n->value>1))return BBM_ERR_ARG;
@@ -75,6 +75,12 @@ static bbm_status update(bbm_handle m,bbm_id id,const bbm_menu_node *n) {
     for(size_t i=0;i<m->nres;i++)if(m->res[i].id==id&&m->res[i].kind==MH_RES_NATIVE_MENU){
         owned_node *p=m->res[i].p;
         if(strcmp(p->node.key,n->key)||strcmp(p->node.parent,n->parent)||p->node.kind!=n->kind){rc=BBM_ERR_ARG;break;}
+        /* Polling producers may publish an unchanged value. Do not invalidate
+         * an otherwise current action or rebuild native controls for padding
+         * bytes / unused trailing string storage. */
+        const bbm_menu_node *old=&p->node;
+        if(old->flags==n->flags&&old->order==n->order&&old->value==n->value&&
+           !strcmp(old->label,n->label)&&!strcmp(old->help,n->help)&&!strcmp(old->target,n->target)){rc=BBM_OK;break;}
         p->node=*n;p->version=++m->host->menu->revision;rc=BBM_OK;break;
     }
     plat_mutex_unlock(m->host->run_lock);return rc;

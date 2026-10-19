@@ -1,5 +1,4 @@
-## Fixtures use assert for both setup calls and verification. Keep those calls
-## active in Release builds as well as Debug builds.
+# Synthetic fixtures use assert for setup as well as verification.
 if(MSVC)
     add_compile_options(/UNDEBUG)
 else()
@@ -25,6 +24,11 @@ add_executable(test_regions test_regions.c)
 target_link_libraries(test_regions PRIVATE bbmod_host)
 target_include_directories(test_regions PRIVATE ${PROJECT_SOURCE_DIR}/src/host/src)
 add_test(NAME regions COMMAND test_regions)
+
+add_executable(test_text_entry test_text_entry.c)
+target_link_libraries(test_text_entry PRIVATE bbmod_host)
+target_include_directories(test_text_entry PRIVATE ${PROJECT_SOURCE_DIR}/src/host/src)
+add_test(NAME text_entry COMMAND test_text_entry)
 
 if(NOT WIN32)
     add_executable(test_rust test_rust.c)
@@ -81,8 +85,22 @@ if(BBMOD_EXAMPLES_DIR)
     if(WIN32)
         set(BBMOD_RUST_PREFIX "")
     endif()
+    add_executable(test_native_input_examples test_native_input_examples.c)
+    target_link_libraries(test_native_input_examples PRIVATE bbmod_host)
+    target_include_directories(test_native_input_examples PRIVATE ${PROJECT_SOURCE_DIR}/src/host/src)
+    add_test(NAME native_input_examples COMMAND test_native_input_examples
+        ${BBMOD_EXAMPLES_DIR}/${BBMOD_RUST_PREFIX}input_counter${CMAKE_SHARED_LIBRARY_SUFFIX}
+        ${BBMOD_EXAMPLES_DIR}/${BBMOD_RUST_PREFIX}input_monitor${CMAKE_SHARED_LIBRARY_SUFFIX}
+        ${BBMOD_EXAMPLES_DIR}/${BBMOD_RUST_PREFIX}hello_rust${CMAKE_SHARED_LIBRARY_SUFFIX})
     add_executable(test_examples test_examples.c)
+    add_executable(test_native_ui_examples test_native_ui_examples.c)
+    target_link_libraries(test_native_ui_examples PRIVATE bbmod_host)
+    target_include_directories(test_native_ui_examples PRIVATE ${PROJECT_SOURCE_DIR}/src/host/src)
+    add_test(NAME native_ui_examples COMMAND test_native_ui_examples
+        ${BBMOD_EXAMPLES_DIR}/${BBMOD_RUST_PREFIX}ui_examples${CMAKE_SHARED_LIBRARY_SUFFIX}
+        ${BBMOD_EXAMPLES_DIR}/${BBMOD_RUST_PREFIX}input_counter${CMAKE_SHARED_LIBRARY_SUFFIX})
     target_link_libraries(test_examples PRIVATE bbmod_host)
+    target_include_directories(test_examples PRIVATE ${PROJECT_SOURCE_DIR}/src/host/src)
     add_test(NAME example_mods COMMAND test_examples
         ${BBMOD_EXAMPLES_DIR}/${BBMOD_RUST_PREFIX}live_patches${CMAKE_SHARED_LIBRARY_SUFFIX}
         ${BBMOD_EXAMPLES_DIR}/${BBMOD_RUST_PREFIX}devtools${CMAKE_SHARED_LIBRARY_SUFFIX}

@@ -4,6 +4,10 @@ A Windows development toolkit for native bbmod DLLs and Bloodborne content mods.
 Clone the source, select your own game and installed port, and generate your private
 reference workspace. Game files and recovered game code are not distributed here.
 
+The latest local native-menu/text-entry work is consolidated here. See
+[development consolidation](docs/CONSOLIDATION.md) for the preserved port WIP,
+legacy tools/references and separate mod project locations.
+
 ## Start
 
 Open PowerShell in this directory:

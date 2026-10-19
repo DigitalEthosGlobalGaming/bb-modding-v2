@@ -8,8 +8,8 @@
  *   - Strings are UTF-8 and NUL-terminated unless a length is given.
  *   - Every resource a mod creates is owned by its bbm_handle and released
  *     automatically when the mod unloads. Explicit release is optional.
- *   - BBM_ABI_MAJOR changes break mods. BBM_ABI_MINOR only appends fields to
- *     the END of bbm_host; check host->size before using a newer field.
+ *   - BBM_ABI_MAJOR changes break mods. BBM_ABI_MINOR adds compatible features
+ *     or appends fields to the END of bbm_host; check host->size for new fields.
  *   - Host functions use the platform C calling convention. Functions that
  *     GAME code calls (hook detours) use System V (sysv64), as PS4 code does.
  */
@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #define BBM_ABI_MAJOR 1
-#define BBM_ABI_MINOR 8
+#define BBM_ABI_MINOR 10
 
 #if defined(_WIN32)
 #define BBM_EXPORT __declspec(dllexport)
@@ -50,6 +50,21 @@ enum {
 typedef struct bbm_mod *bbm_handle; /* opaque, one per loaded mod instance */
 typedef struct bbm_ctx bbm_ctx;     /* mod-defined state, opaque to the host */
 typedef uint64_t bbm_id;            /* any owned resource; 0 is never valid */
+
+/* ABI 1.10: one owned system text dialog. Strings are copied during begin.
+ * max_bytes excludes the terminator (1..4095), counts UTF-8 bytes, not glyphs.
+ * Release cancels a pending dialog. Terminal results are stable until release. */
+enum { BBM_TEXT_PENDING=0, BBM_TEXT_ACCEPTED=1, BBM_TEXT_CANCELLED=2, BBM_TEXT_FAILED=3 };
+typedef struct bbm_text_request {
+    uint32_t size,max_bytes;
+    char title[128],initial[4096];
+} bbm_text_request;
+typedef struct bbm_text_result {
+    uint32_t size,state;
+    bbm_status status;
+    uint32_t reserved;
+    char text[4096];
+} bbm_text_result;
 
 typedef struct bbm_version {
     uint16_t major, minor, patch, reserved;
@@ -273,6 +288,7 @@ typedef struct bbm_pad_info {
 #define BBM_MENU_ACTION 2u
 #define BBM_MENU_LINK 3u
 #define BBM_MENU_TOGGLE 4u
+#define BBM_MENU_INFO 5u /* read-only text/value row; never emits an action */
 #define BBM_MENU_ENABLED 1u
 #define BBM_MENU_CAP_REGISTRY 1u
 #define BBM_MENU_CAP_LISTS 2u
@@ -280,6 +296,7 @@ typedef struct bbm_pad_info {
 #define BBM_MENU_CAP_INGAME 8u
 #define BBM_MENU_CAP_OBSERVE 16u
 #define BBM_MENU_CAP_SELECTION 32u
+#define BBM_MENU_CAP_LIVE 64u /* refreshes open custom lists on native UI thread */
 #define BBM_MENU_OPENED 1u
 #define BBM_MENU_CLOSED 2u
 #define BBM_MENU_ACTIVATED 3u
@@ -462,6 +479,8 @@ typedef struct bbm_host {
     bbm_status (*menu_register)(bbm_handle, const bbm_menu_node*, bbm_id*);
     bbm_status (*menu_update)(bbm_handle, bbm_id, const bbm_menu_node*);
     bbm_status (*menu_state)(bbm_handle, bbm_menu_state*);
+    bbm_status (*text_begin)(bbm_handle, const bbm_text_request*, bbm_id*);
+    bbm_status (*text_poll)(bbm_handle, bbm_id, bbm_text_result*);
 } bbm_host;
 
 /* ---- Mod function table (filled by the mod in bbmod_entry) ------------- */

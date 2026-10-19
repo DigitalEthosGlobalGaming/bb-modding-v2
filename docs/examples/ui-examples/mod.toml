@@ -2,7 +2,7 @@
 id = "example.ui-examples"
 name = "Shared UI Examples"
 version = "0.1.0"
-abi = "1.4"
+abi = "1.10"
 dll = "ui_examples.dll"
 [load]
 hot_reload = true

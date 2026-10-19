@@ -1,52 +1,45 @@
 # Shared UI examples
 
-This mod demonstrates two shared overlay locations: `bbmod.dashboard` and
-`bbmod.settings`. Inspector and Adaptive Triggers also contribute to these slots
-when the ABI 1.4 shared UI backend is available. This is the host's ImGui overlay,
-not native Bloodborne menu injection.
+This ABI 1.10 mod contributes native dashboard and settings screens under
+**Mods → Shared UI Examples**. It registers no ImGui panel. These screens reuse
+the game's list template and need the live adapter for open-screen feedback
+and paging.
 
-The dashboard includes a counter and a toggle that releases/recreates only this
-mod's settings contribution. Settings includes a separate counter, checkbox,
-slider, selection and text input. Both counters deliberately use the same button
-label (`Increment`) to verify widget ID isolation. All controls affect example
-state only; this mod writes no game memory or controller output.
+The dashboard has its own counter, accepted label and a toggle that removes or
+restores only this mod's settings. Settings has a separate counter, Enabled
+toggle, bounded integer, style alternatives and a system text editor. Both
+counter actions deliberately say **Increment**, with separate stable IDs.
+Controls change example state only; no game memory or controller output is
+written. Style is shown by name; native text retains the game's stock styling
+rather than the old overlay's custom RGB tint.
 
-State survives hot reload, including whether settings are hidden. Host resource IDs
-are never saved. Unloading removes this mod's contributions while other mods in
-the same slot remain. Corrupt or incompatible saved state resets to defaults.
+Hot reload retains the original UIEX version-one state format, including hidden
+settings. Resource IDs and pending edits are never saved. Hide/unload cancels an
+owned editor; accepted values survive hide/show and reload. A failed show rolls
+back partial registration and the optimistic native toggle, leaving a retryable
+dashboard. Other mods' controls remain owned independently. Typing needs a
+keyboard; Enter/Cross accepts and Escape/Circle cancels.
 
 ```powershell
-# From the workspace root; builds debug and release, runs tests, packages only:
+# From the workspace root: build, test and package only
 .\modding\bloodborne_pc\third_party\bbmod\examples\ui-examples\build.ps1 -Test
 ```
 
-Output package: `dist/example.ui-examples`. The workspace release deployer handles
-installation and rollback; this script never deploys. Source manifest ID is
-`example.ui-examples`, DLL `ui_examples.dll`, ABI `1.4`.
+Package: `dist/example.ui-examples`, DLL `ui_examples.dll`. The script never
+installs it. Its actual DLL harness supplies no ImGui backend and checks all
+controls, Unicode, duplicate-label counters, hide during editing, partial
+registration failure/retry, stale actions and twenty visible plus twenty hidden
+reloads. The workspace native runner also checks ownership, text leases, game
+IME handlers, paging and registry capacity. Eight native DLLs coexist beyond the
+old 128-node budget. The mixed-backend test keeps the pending Inspector/Adaptive
+controls reachable during migration. These checks do not prove rendering or
+navigation of this new screen in the game.
 
-Offline validation includes two Rust tests for complete versioned state transfer
-and malformed-state rejection, plus a native harness loading the actual UI DLL
-and a second actual mod. It checks independent same-label counters, another mod's
-content surviving release/unload, and 20 hide/show/reload cycles without losing
-state or accumulating active contributions. Released Rust callback allocations are
-retained until mod destruction; this demo is not a pattern for unbounded registration
-loops. The harness uses fake UI widgets; it does
-not establish visual quality or mouse/controller behavior in the running game.
-The workspace `modding/test-shared-ui-mods.ps1` additionally loads the actual
-Inspector, Adaptive Triggers and UI Examples DLLs together to verify all six
-sections use the shared backend and remain isolated across reload/unload.
+## In-game check
 
-## In-game checklist
-
-1. Open F1 and locate `bbmod.dashboard` and `bbmod.settings`.
-2. Verify UI Examples, Inspector and Adaptive Triggers share the locations.
-3. Click each example `Increment`: only its own counter should change.
-4. Change the slider, style and label; dashboard should reflect them.
-5. Hide example settings: Inspector/Adaptive contributions must remain usable.
-6. Reload UI Examples: values and hidden state should survive; show settings again.
-7. Unload UI Examples: both its sections disappear, other contributions remain.
-8. Reload Inspector/Adaptive individually: other sections should remain stable.
-
-This checklist is pending user validation; offline harness success is not a claim
-that these UI interactions were exercised in the game. See the workspace
-[return-to-game checklist](../../../../../TEST-WHEN-BACK.txt).
+1. Open Mods → Shared UI Examples and navigate both dashboard pages.
+2. Increment each screen's counter independently.
+3. Change Enabled, Level, Style and Label; check dashboard values and Back.
+4. Hide/show settings and confirm accepted values remain.
+5. Reload with settings visible and hidden; check counters and settings.
+6. Unload and check other mods remain available.

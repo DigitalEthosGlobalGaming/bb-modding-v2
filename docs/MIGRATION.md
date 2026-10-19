@@ -1,7 +1,8 @@
 # Migration inventory
 
-Original installations and source repositories remain intact. This is a fresh source
-repository; no old Git history was copied.
+Original installations and source repositories were preserved. See CONSOLIDATION.md for
+their current locations following workspace cleanup. This toolkit started as a fresh
+source repository; the old repository histories are retained privately under .local.
 
 | Previous work | Toolkit location |
 | --- | --- |
