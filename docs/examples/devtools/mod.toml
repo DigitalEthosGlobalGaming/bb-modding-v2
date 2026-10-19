@@ -1,0 +1,13 @@
+[mod]
+id = "example.devtools"
+name = "Dev Tools"
+version = "0.1.0"
+abi = "1.1"
+dll = "devtools.dll"
+
+[load]
+hot_reload = true
+
+[multiplayer]
+scope = "client"
+protocol = 1

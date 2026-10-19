@@ -1,0 +1,10 @@
+[mod]
+id = "example.input-monitor"
+name = "Shared Input Monitor"
+version = "0.1.0"
+abi = "1.3"
+dll = "input_monitor.dll"
+[load]
+hot_reload = true
+[multiplayer]
+scope = "client"

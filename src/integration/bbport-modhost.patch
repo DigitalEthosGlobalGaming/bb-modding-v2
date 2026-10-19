@@ -1,0 +1,779 @@
+diff --git a/gpu/CMakeLists.txt b/gpu/CMakeLists.txt
+index 227b84c..827e834 100644
+--- a/gpu/CMakeLists.txt
++++ b/gpu/CMakeLists.txt
+@@ -252,6 +252,31 @@ else()
+     target_link_libraries(bbgpu PUBLIC PkgConfig::X11)
+ endif()
+ 
++# Native code mods (bbmod: hot-loadable Rust/C mods with clean unload, src/runtime_modhost.c).
++# Windows: on when a bbmod checkout is in third_party/bbmod (or BBMOD_DIR); -DBB_MODHOST=OFF leaves
++# it out. Linux (build.sh) is not wired yet.
++set(BBMOD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/bbmod" CACHE PATH "bbmod checkout")
++if (WIN32 AND EXISTS "${BBMOD_DIR}/host/include/modhost.h") # Linux: build.sh links bb-probe itself
++    set(BB_MODHOST_DEFAULT ON)
++else()
++    set(BB_MODHOST_DEFAULT OFF)
++endif()
++option(BB_MODHOST "Native code mods (bbmod)" ${BB_MODHOST_DEFAULT})
++if (BB_MODHOST)
++    file(GLOB BBMOD_HOST_SOURCES CONFIGURE_DEPENDS "${BBMOD_DIR}/host/src/*.c")
++    add_library(bbmod_host STATIC ${BBMOD_HOST_SOURCES})
++    set_target_properties(bbmod_host PROPERTIES C_STANDARD 11)
++    target_include_directories(bbmod_host PUBLIC "${BBMOD_DIR}/host/include" "${BBMOD_DIR}/sdk/include")
++    target_compile_definitions(bbmod_host PRIVATE BBM_WITH_ZYDIS=1)
++    target_link_libraries(bbmod_host PRIVATE Zydis::Zydis)
++    target_sources(bbgpu PRIVATE shim/bbport_modui.cpp)
++    target_compile_definitions(bbgpu PRIVATE BB_MODHOST=1)
++    target_link_libraries(bbgpu PUBLIC bbmod_host)
++    message(STATUS "Code mods (bbmod): on, from ${BBMOD_DIR}")
++else()
++    message(STATUS "Code mods (bbmod): off (no ${BBMOD_DIR})")
++endif()
++
+ # bbport (Windows): bbgpu is a static library there, so the loader and the HLE runtime are
+ # linked here, where CMake knows its dependencies (build.sh builds them with ninja).
+ if (WIN32)
+@@ -274,6 +299,9 @@ if (WIN32)
+             $<$<COMPILE_LANGUAGE:C>:-Wno-error=unused-but-set-global>)
+     endif()
+     target_include_directories(bb-probe PRIVATE .. ../src)
++    if (BB_MODHOST)
++        target_compile_definitions(bb-probe PRIVATE BB_MODHOST=1)
++    endif()
+     target_link_libraries(bb-probe PRIVATE bbgpu atrac9 onecore bcrypt ws2_32 -pthread)
+     # The PS4 range (64 GiB - 1 TiB) must stay free: no high-entropy ASLR for heaps and stacks.
+     # The guest main thread runs on the process stack: 16 MiB, committed (no stack probes).
+diff --git a/gpu/shim/bbport_modui.cpp b/gpu/shim/bbport_modui.cpp
+new file mode 100644
+index 0000000..561c53a
+--- /dev/null
++++ b/gpu/shim/bbport_modui.cpp
+@@ -0,0 +1,245 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++// bbport: native code mods in the overlay (bbmod, src/runtime_modhost.c). While the settings
++// menu is open: a "Mods" window (state, errors, load/unload/reload) and every panel the mods
++// register. Mod notifications show as toasts at any time. Drawn on the present thread inside
++// BbOverlay::Render (imgui_mutex held); the mod host is only try-locked here, so a hot reload
++// running on the game thread costs one overlay frame, never a stall.
++
++#include "bbport_modui.h"
++
++#include <chrono>
++#include <cstdio>
++#include <deque>
++#include <mutex>
++#include <string>
++
++#include "imgui.h"
++#include "modhost.h"
++
++extern "C" modhost* runtime_modhost_get(void);
++extern "C" const char* runtime_modhost_log_path(void);
++
++namespace {
++
++struct Toast {
++    std::string text;
++    std::chrono::steady_clock::time_point until;
++};
++std::mutex toast_mutex;
++std::deque<Toast> toasts;
++
++int BeginPanel(void*, const char* title, const char* mod_id) {
++    char id[320];
++    std::snprintf(id, sizeof(id), "%s##%s", title, mod_id);
++    ImGui::SetNextWindowSize(ImVec2(420.0f, 0.0f), ImGuiCond_FirstUseEver);
++    return ImGui::Begin(id) ? 1 : 0;
++}
++void EndPanel(void*) { ImGui::End(); }
++void Text(void*, const char* text) { ImGui::TextUnformatted(text); }
++int Button(void*, const char* label) { return ImGui::Button(label) ? 1 : 0; }
++int Checkbox(void*, const char* label, int32_t* value) {
++    bool v = *value != 0;
++    const bool changed = ImGui::Checkbox(label, &v);
++    *value = v ? 1 : 0;
++    return changed ? 1 : 0;
++}
++int SliderFloat(void*, const char* label, float* v, float lo, float hi) {
++    return ImGui::SliderFloat(label, v, lo, hi) ? 1 : 0;
++}
++int SliderInt(void*, const char* label, int32_t* v, int32_t lo, int32_t hi) {
++    int x = *v;
++    const bool changed = ImGui::SliderInt(label, &x, lo, hi);
++    *v = x;
++    return changed ? 1 : 0;
++}
++int InputText(void*, const char* label, char* buf, size_t cap) {
++    return ImGui::InputText(label, buf, cap) ? 1 : 0;
++}
++int CollapsingHeader(void*, const char* label) { return ImGui::CollapsingHeader(label) ? 1 : 0; }
++int Combo(void*, const char* label, int32_t* current, const char* items) {
++    int c = *current;
++    const bool changed = ImGui::Combo(label, &c, items);
++    *current = c;
++    return changed ? 1 : 0;
++}
++void TextColored(void*, float r, float g, float b, float a, const char* text) {
++    ImGui::TextColored(ImVec4(r, g, b, a), "%s", text);
++}
++void Separator(void*) { ImGui::Separator(); }
++void SameLine(void*) { ImGui::SameLine(); }
++void* Context(void*) { return ImGui::GetCurrentContext(); }
++
++// Any thread (game thread, a crash report): queued, drawn by the present thread.
++void Notify(void*, const char* mod_id, const char* msg) {
++    std::scoped_lock lock{toast_mutex};
++    if (toasts.size() >= 6) toasts.pop_front();
++    toasts.push_back({std::string(mod_id ? mod_id : "mods") + ": " + msg,
++                      std::chrono::steady_clock::now() + std::chrono::seconds(4)});
++    std::printf("Mods: %s: %s\n", mod_id ? mod_id : "host", msg);
++}
++
++// The in-game log window: the last lines runtime_modhost.c logged (the file has them all).
++struct LogLine {
++    int level;
++    std::string text;
++};
++std::mutex log_mutex;
++std::deque<LogLine> log_lines;
++bool log_follow = true;
++int log_min_level = 0;
++
++void LogWindow() {
++    ImGui::SetNextWindowSize(ImVec2(760.0f, 300.0f), ImGuiCond_FirstUseEver);
++    if (!ImGui::Begin("Mod log")) {
++        ImGui::End();
++        return;
++    }
++    ImGui::Text("Full log: %s", runtime_modhost_log_path());
++    static const char* levels = "debug\0info\0warn\0error\0";
++    ImGui::SetNextItemWidth(120.0f);
++    ImGui::Combo("show from", &log_min_level, levels);
++    ImGui::SameLine();
++    ImGui::Checkbox("follow", &log_follow);
++    ImGui::SameLine();
++    if (ImGui::SmallButton("Clear")) {
++        std::scoped_lock lock{log_mutex};
++        log_lines.clear();
++    }
++    ImGui::Separator();
++    ImGui::BeginChild("##log_lines");
++    {
++        std::scoped_lock lock{log_mutex};
++        for (const auto& l : log_lines) {
++            if (l.level < log_min_level) continue;
++            const ImVec4 colour = l.level >= 3 ? ImVec4(1.0f, 0.5f, 0.45f, 1.0f)
++                                : l.level == 2 ? ImVec4(0.95f, 0.8f, 0.4f, 1.0f)
++                                : l.level == 0 ? ImVec4(0.65f, 0.65f, 0.65f, 1.0f)
++                                               : ImVec4(0.9f, 0.9f, 0.9f, 1.0f);
++            ImGui::TextColored(colour, "%s", l.text.c_str());
++        }
++    }
++    if (log_follow && ImGui::GetScrollY() < ImGui::GetScrollMaxY()) ImGui::SetScrollHereY(1.0f);
++    ImGui::EndChild();
++    ImGui::End();
++}
++
++const char* StateName(modhost_state s) {
++    switch (s) {
++    case MODHOST_ACTIVE: return "active";
++    case MODHOST_UNLOADED: return "unloaded";
++    case MODHOST_FAULTED: return "faulted";
++    case MODHOST_DISABLED: return "disabled";
++    default: return "found";
++    }
++}
++ImVec4 StateColor(modhost_state s) {
++    switch (s) {
++    case MODHOST_ACTIVE: return ImVec4(0.45f, 0.85f, 0.45f, 1.0f);
++    case MODHOST_FAULTED: return ImVec4(1.0f, 0.45f, 0.4f, 1.0f);
++    case MODHOST_DISABLED: return ImVec4(0.9f, 0.75f, 0.35f, 1.0f);
++    default: return ImVec4(0.7f, 0.7f, 0.7f, 1.0f);
++    }
++}
++
++void ModsWindow(modhost* h) {
++    ImGui::SetNextWindowSize(ImVec2(560.0f, 0.0f), ImGuiCond_FirstUseEver);
++    if (!ImGui::Begin("Mods")) {
++        ImGui::End();
++        return;
++    }
++    const size_t n = modhost_mod_count(h);
++    if (n == 0) {
++        ImGui::TextUnformatted("No code mods. Put them in the bbmods folder (one folder per mod).");
++    }
++    ImGui::TextDisabled("F1 or Esc closes this overlay. Log: %s", runtime_modhost_log_path());
++    for (size_t i = 0; i < n; ++i) {
++        modhost_mod_view v;
++        if (modhost_mod_view_at(h, i, &v) != 0) continue;
++        ImGui::PushID(int(i));
++        ImGui::TextColored(StateColor(v.state), "%-9s", StateName(v.state));
++        ImGui::SameLine();
++        ImGui::Text("%s  %u.%u.%u", v.name, v.version.major, v.version.minor, v.version.patch);
++        if (v.has_code) {
++            ImGui::SameLine();
++            if (v.state == MODHOST_ACTIVE) {
++                if (ImGui::SmallButton("Reload")) modhost_request_reload(h, v.id);
++                ImGui::SameLine();
++                if (ImGui::SmallButton("Unload")) modhost_request_unload(h, v.id);
++            } else if (ImGui::SmallButton(v.state == MODHOST_FAULTED ? "Retry" : "Load")) {
++                modhost_request_reload(h, v.id);
++            }
++            if (v.state == MODHOST_ACTIVE) {
++                ImGui::SameLine();
++                ImGui::TextDisabled("%.2f ms  %u res  reloads %u", v.frame_ms, v.resources, v.reload_count);
++            }
++        }
++        if (v.last_error) ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.5f, 1.0f), "  %s", v.last_error);
++        ImGui::PopID();
++    }
++    ImGui::End();
++}
++
++void Toasts() {
++    std::scoped_lock lock{toast_mutex};
++    const auto now = std::chrono::steady_clock::now();
++    while (!toasts.empty() && toasts.front().until <= now) toasts.pop_front();
++    if (toasts.empty()) return;
++    const ImGuiViewport* vp = ImGui::GetMainViewport();
++    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x - 20.0f, vp->WorkPos.y + vp->WorkSize.y - 20.0f),
++                            ImGuiCond_Always, ImVec2(1.0f, 1.0f));
++    ImGui::SetNextWindowBgAlpha(0.75f);
++    ImGui::Begin("##mod_toasts", nullptr,
++                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs |
++                     ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
++    for (const auto& t : toasts) ImGui::TextUnformatted(t.text.c_str());
++    ImGui::End();
++}
++
++} // namespace
++
++// runtime_modhost.c, any thread, under its log lock.
++extern "C" void bbport_modui_log(int level, const char* line) {
++    std::scoped_lock lock{log_mutex};
++    if (log_lines.size() >= 300) log_lines.pop_front();
++    log_lines.push_back({level, line});
++}
++
++extern "C" void bbport_modui_fill(modhost_ui_backend* ui) {
++    ui->user = nullptr;
++    ui->begin_panel = BeginPanel;
++    ui->end_panel = EndPanel;
++    ui->text = Text;
++    ui->button = Button;
++    ui->checkbox = Checkbox;
++    ui->slider_float = SliderFloat;
++    ui->separator = Separator;
++    ui->same_line = SameLine;
++    ui->notify = Notify;
++    ui->imgui_context = Context;
++    ui->slider_int = SliderInt;
++    ui->input_text = InputText;
++    ui->collapsing_header = CollapsingHeader;
++    ui->combo = Combo;
++    ui->text_colored = TextColored;
++}
++
++namespace BbModUi {
++
++bool Visible() {
++    std::scoped_lock lock{toast_mutex};
++    return !toasts.empty();
++}
++
++void Draw(bool menu_open) {
++    modhost* h = runtime_modhost_get();
++    if (!h) return;
++    if (menu_open && modhost_try_lock(h)) {
++        ModsWindow(h);
++        modhost_draw_panels(h);
++        modhost_unlock(h);
++    }
++    if (menu_open) LogWindow();
++    Toasts();
++}
++
++} // namespace BbModUi
+diff --git a/gpu/shim/bbport_modui.h b/gpu/shim/bbport_modui.h
+new file mode 100644
+index 0000000..7553f98
+--- /dev/null
++++ b/gpu/shim/bbport_modui.h
+@@ -0,0 +1,15 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++// bbport: native code mods in the overlay (bbport_modui.cpp). Without BB_MODHOST both are no-ops.
++#pragma once
++
++namespace BbModUi {
++#ifdef BB_MODHOST
++/// Toasts pending: the overlay must draw this frame.
++bool Visible();
++/// Present thread, inside the ImGui frame: Mods window and mod panels (menu open), toasts.
++void Draw(bool menu_open);
++#else
++inline bool Visible() { return false; }
++inline void Draw(bool) {}
++#endif
++} // namespace BbModUi
+diff --git a/gpu/shim/bbport_overlay.cpp b/gpu/shim/bbport_overlay.cpp
+index 0ec1f6b..468ac8e 100644
+--- a/gpu/shim/bbport_overlay.cpp
++++ b/gpu/shim/bbport_overlay.cpp
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: GPL-2.0-or-later
+ #include "bbport_overlay.h"
++#include "bbport_modui.h"
+ 
+ #include <algorithm>
+ #include <atomic>
+@@ -52,6 +53,18 @@ namespace {
+ std::mutex imgui_mutex; // the ImGui context: window thread (input) and present thread
+ bool initialized = false;
+ std::atomic<bool> menu_open{false};
++// Code mods' own overlay (bbport_modui.cpp): the Mods window, the mods' panels and the mod log,
++// opened with F1 (BB_MODS_KEY: an SDL key name) without the settings menu.
++std::atomic<bool> mods_open{false};
++
++SDL_Keycode ModsKey() {
++    static const SDL_Keycode key = [] {
++        const char* name = std::getenv("BB_MODS_KEY");
++        const SDL_Keycode k = name && *name ? SDL_GetKeyFromName(name) : SDLK_UNKNOWN;
++        return k != SDLK_UNKNOWN ? k : SDLK_F1;
++    }();
++    return key;
++}
+ bool l3_down = false, r3_down = false;
+ bool dirty = false; // settings changed while open: saved on close
+ // The game's text dialog (SetTextEntry), guarded by imgui_mutex.
+@@ -67,7 +80,7 @@ void SetOpen(bool value) {
+     if (menu_open.exchange(value) == value) {
+         return;
+     }
+-    ImGui::GetIO().MouseDrawCursor = value;
++    ImGui::GetIO().MouseDrawCursor = value || mods_open;
+     if (!value && dirty) {
+         dirty = false;
+         BbSettings::Save();
+@@ -586,7 +599,7 @@ void UpdateTextInput(SDL_Window* window) {
+     bool want = false;
+     {
+         std::scoped_lock lock{imgui_mutex};
+-        want = initialized && menu_open && ImGui::GetIO().WantTextInput;
++        want = initialized && (menu_open || mods_open) && ImGui::GetIO().WantTextInput;
+     }
+     if (want != SDL_TextInputActive(window)) {
+         if (want) {
+@@ -603,14 +616,23 @@ bool HandleEvent(const SDL_Event& event) {
+         return false;
+     }
+     ImGuiIO& io = ImGui::GetIO();
+-    const bool is_open = menu_open;
++    const bool is_open = menu_open || mods_open;
+     switch (event.type) {
+     case SDL_EVENT_KEY_DOWN:
+     case SDL_EVENT_KEY_UP: {
+         const bool down = event.type == SDL_EVENT_KEY_DOWN;
++        // Code mods' overlay: F1 alone toggles it (Ctrl/Alt/Shift+F1 stay free for mod hotkeys);
++        // Escape closes it when the settings menu is not open.
++        const bool plain = (event.key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_SHIFT)) == 0;
++        if (down && !event.key.repeat && ((event.key.key == ModsKey() && plain) ||
++                                          (mods_open && !menu_open && event.key.key == SDLK_ESCAPE))) {
++            mods_open = event.key.key == ModsKey() ? !mods_open : false;
++            io.MouseDrawCursor = menu_open || mods_open;
++            return true;
++        }
+         if (down && !event.key.repeat &&
+-            (event.key.key == SDLK_INSERT || (is_open && event.key.key == SDLK_ESCAPE))) {
+-            SetOpen(event.key.key == SDLK_INSERT ? !is_open : false);
++            (event.key.key == SDLK_INSERT || (menu_open && event.key.key == SDLK_ESCAPE))) {
++            SetOpen(event.key.key == SDLK_INSERT ? !menu_open : false); // the settings menu only
+             return true;
+         }
+         if (!is_open) {
+@@ -634,7 +656,7 @@ bool HandleEvent(const SDL_Event& event) {
+             r3_down = down;
+         }
+         if (down && l3_down && r3_down) {
+-            SetOpen(!is_open);
++            SetOpen(!menu_open);
+             return true;
+         }
+         if (!is_open) {
+@@ -688,11 +710,12 @@ bool HandleEvent(const SDL_Event& event) {
+ }
+ 
+ bool Visible() {
+-    return initialized && (menu_open || text_entry_active || BbSettings::Get().show_fps);
++    return initialized && (menu_open || mods_open || text_entry_active || BbSettings::Get().show_fps ||
++                           BbModUi::Visible());
+ }
+ 
+ bool CapturesInput() {
+-    return menu_open || text_entry_active;
++    return menu_open || mods_open || text_entry_active;
+ }
+ 
+ void SetTextEntry(bool active, const std::string& prompt, const std::string& text) {
+@@ -761,6 +784,7 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
+     if (text_entry_active) {
+         TextEntryBox();
+     }
++    BbModUi::Draw(menu_open || mods_open); // code mods: Mods window, panels, log (F1 or menu); toasts
+     ImGui::Render();
+ 
+     const vk::RenderingAttachmentInfo attachment{
+diff --git a/run.py b/run.py
+index d0721f0..0ece0c1 100644
+--- a/run.py
++++ b/run.py
+@@ -230,6 +230,9 @@ def main():
+                           '--source', text_layer, optional=True):
+             shutil.rmtree(hud_layer, ignore_errors=True)
+             print('HUD layout: its menu files could not be written; the HUD stays in the centre')
++    # Code mods (bbmod, runtime_modhost.c): one folder per mod, beside the loose-file mods.
++    env.setdefault('BB_CODEMODS_DIR', str(data / 'bbmods'))
++    Path(env['BB_CODEMODS_DIR']).mkdir(parents=True, exist_ok=True)
+     mod_args = [game, '--out', out, '--mods-dir', env.get('BB_MODS_DIR', data / 'mods'),
+                 '--config', env.get('BB_MODS_CONFIG', data / 'mods.json'),
+                 '--enabled', env.get('BB_MODS_ENABLED', '1')]
+diff --git a/src/probe.c b/src/probe.c
+index 07344eb..ddd3b90 100644
+--- a/src/probe.c
++++ b/src/probe.c
+@@ -7,6 +7,7 @@
+ #include <inttypes.h>
+ #include <cpuid.h>
+ #include "runtime.h"
++#include "runtime_modhost.h"
+ #include "gpu/bbgpu.h"
+ #if !defined(__x86_64__) || !defined(__GNUC__)
+ #error This prototype requires x86-64 GCC or Clang (including MinGW).
+@@ -221,6 +222,15 @@ static LONG CALLBACK vectored_fault(EXCEPTION_POINTERS *info) {
+         int ours=(image && rip-(uintptr_t)image<0x20000000) ||
+                  (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,(LPCSTR)rip,&module) && module==self) ||
+                  !module;
++        /* A code mod's own hook crashed (runtime_modhost.c): name it in the report. Crashes in
++         * the mod's callbacks never get here; runtime_fault_recover above disables the mod. */
++        const char *mod=runtime_modhost_fault_owner(rip);
++        if (mod) {
++            fprintf(stderr,"Fault inside code mod '%s' (in a hook it installed). To start without it:"
++                    " remove it from the bbmods folder, or set BB_MODS_SAFE=1 to load no code mods.\n",mod);
++            runtime_modhost_fault(rip);
++            return fatal_exception(info);
++        }
+         if (ours) return fatal_exception(info);
+     }
+     /* BB_STRICT_HANDLES=1: a closed or invalid handle used anywhere is reported (diagnostics). */
+@@ -695,6 +705,8 @@ int main(int argc, char **argv) {
+         }
+     }
+     bbnet_initialize(); /* the online session starts with the game */
++    /* Code mods (runtime_modhost.c): after the image has its final protections, before guest code. */
++    runtime_modhost_start(image, size);
+     printf("Entering original x86-64 code at guest offset 0x%" PRIx64 "\n", entry);
+     entered_game=1;
+     struct { uint64_t argc; const char *argv[2]; } params = {1, {"/app0/eboot.bin", NULL}};
+diff --git a/src/runtime_file.c b/src/runtime_file.c
+index c64c0f9..68e263c 100644
+--- a/src/runtime_file.c
++++ b/src/runtime_file.c
+@@ -5,6 +5,7 @@
+  * Paths containing ".." components are rejected rather than normalized. */
+ #define _GNU_SOURCE
+ #include "runtime.h"
++#include "runtime_modhost.h"
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -139,6 +140,9 @@ static int translate(const char *guest,char *out,size_t size) {
+     if (!m) result=ENOENT;
+     else if ((size_t)snprintf(out,size,"%s%s",m->host,buffer+best)>=size) result=ENAMETOOLONG;
+     pthread_mutex_unlock(&lock);
++    /* Code mods (runtime_modhost.c): a file_override or a mod's dvdroot_ps4 file replaces the
++     * game's at open time, so it changes while the game runs (hot reload). */
++    if (!result && runtime_modhost_resolve(buffer,out,size)) return 0;
+     if (!result && strstr(out,"/dvdroot_ps4/")) {
+         const char *language=getenv("BB_LANGUAGE");
+         if (language && !strcmp(language,"17")) {
+diff --git a/src/runtime_modhost.c b/src/runtime_modhost.c
+new file mode 100644
+index 0000000..7859d6e
+--- /dev/null
++++ b/src/runtime_modhost.c
+@@ -0,0 +1,228 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later
++ * Native code mods (bbmod, third_party/bbmod): the glue between bbport and the
++ * mod host. Built with -DBB_MODHOST (gpu/CMakeLists.txt, on when
++ * third_party/bbmod is present); without it every function here is a no-op.
++ *
++ *   BB_CODEMODS_DIR   mod folder (run.py: <data>/bbmods; default ./bbmods)
++ *   BB_MODS_DEV=1     watch mod DLLs and hot reload them when they change
++ *   BB_MODS_SAFE=1    discover mods but load none (a mod crashes at start)
++ *   BB_MODHOST=0      no mod host at all
++ *   BB_MODS_LOG       log file (default: <mods folder>.log, e.g. bbmods.log; the previous
++ *                     run's is kept as bbmods.prev.log). Every host and mod line, debug
++ *                     included, timestamped and flushed per line.
++ *
++ * Sync point: the game's pad poll (scePadReadState), on the first thread that
++ * polls. Mod frame callbacks, reloads and network events run there, once per
++ * poll, outside the pad lock. */
++#include "runtime.h"
++#include "runtime_modhost.h"
++
++#ifdef BB_MODHOST
++#include <stdbool.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <time.h>
++#include <pthread.h>
++#include <SDL3/SDL.h>
++#include "gpu/bbgpu.h"
++#include "modhost.h"
++
++#ifdef _WIN32
++#define WIN32_LEAN_AND_MEAN
++#include <windows.h>
++static uint64_t thread_id(void) { return GetCurrentThreadId(); }
++#else
++#include <pthread.h>
++static uint64_t thread_id(void) { return (uint64_t)(uintptr_t)pthread_self(); }
++#endif
++
++void bbport_modui_fill(modhost_ui_backend *ui);     /* gpu/shim/bbport_modui.cpp */
++void bbport_modui_log(int level, const char *line); /* its in-game log window */
++
++static modhost *host;
++static uint64_t sync_thread;
++static volatile uint32_t pad_buttons;
++static int dev_mode;
++
++static FILE *log_file;
++static char log_path[1100];
++static pthread_mutex_t log_lock = PTHREAD_MUTEX_INITIALIZER;
++
++static void open_log(const char *dir) {
++    const char *p = getenv("BB_MODS_LOG");
++    if (p && *p) snprintf(log_path, sizeof(log_path), "%s", p);
++    else snprintf(log_path, sizeof(log_path), "%s.log", dir);
++    char prev[1200];
++    snprintf(prev, sizeof(prev), "%.*s.prev.log", (int)(strlen(log_path) > 4 ? strlen(log_path) - 4 : strlen(log_path)), log_path);
++    remove(prev);
++    rename(log_path, prev);
++    log_file = fopen(log_path, "w");
++    if (log_file) {
++        time_t now = time(NULL);
++        char when[64];
++        strftime(when, sizeof(when), "%Y-%m-%d %H:%M:%S", localtime(&now));
++        fprintf(log_file, "bbport code mods log, started %s\n", when);
++        fflush(log_file);
++    }
++}
++
++/* Any thread (game, overlay, mod workers): one lock for the file, console and window. */
++static void log_line(void *user, const char *mod_id, int level, const char *msg) {
++    (void)user;
++    static const char *names[] = {"debug", "info", "warn", "error"};
++    int hh, mm, ss, ms;
++#ifdef _WIN32
++    SYSTEMTIME st;
++    GetLocalTime(&st);
++    hh = st.wHour; mm = st.wMinute; ss = st.wSecond; ms = st.wMilliseconds;
++#else
++    struct timespec ts;
++    clock_gettime(CLOCK_REALTIME, &ts);
++    time_t secs = ts.tv_sec;
++    struct tm tm_now = *localtime(&secs);
++    hh = tm_now.tm_hour; mm = tm_now.tm_min; ss = tm_now.tm_sec; ms = (int)(ts.tv_nsec / 1000000);
++#endif
++    char line[1400];
++    snprintf(line, sizeof(line), "%02d:%02d:%02d.%03d [%s] %s%s%s", hh, mm, ss, ms, names[level & 3],
++             mod_id ? mod_id : "host", mod_id ? ": " : "", msg);
++    pthread_mutex_lock(&log_lock);
++    if (log_file) {
++        fputs(line, log_file);
++        fputc('\n', log_file);
++        fflush(log_file); /* survives a crash */
++    }
++    if (level >= BBM_LOG_INFO || dev_mode) {
++        printf("Mods: %s\n", line + 13);
++        fflush(stdout);
++    }
++    bbport_modui_log(level, line);
++    pthread_mutex_unlock(&log_lock);
++}
++
++const char *runtime_modhost_log_path(void) { return log_path; }
++
++/* A crash inside mod code during a host call jumps back here (probe.c's fault
++ * handler resumes the thread through runtime_fault_recover), and only that mod
++ * is disabled. */
++static int call_guarded(void *user, void (*fn)(void *), void *arg) {
++    (void)user;
++    sigjmp_buf buffer;
++    sigjmp_buf *volatile previous = runtime_fault_recover;
++    if (sigsetjmp(buffer, 1)) {
++        runtime_fault_recover = previous;
++        return 1;
++    }
++    runtime_fault_recover = &buffer;
++    fn(arg);
++    runtime_fault_recover = previous;
++    return 0;
++}
++
++static const uint8_t *keyboard(void *user, int *count) {
++    (void)user;
++    if (bbgpu_overlay_captures_input() || !SDL_WasInit(SDL_INIT_VIDEO)) return NULL;
++    return (const uint8_t *)SDL_GetKeyboardState(count); /* bool[], one byte each */
++}
++
++static uint32_t pad(void *user) {
++    (void)user;
++    return __atomic_load_n(&pad_buttons, __ATOMIC_RELAXED);
++}
++
++static int env_on(const char *name) {
++    const char *v = getenv(name);
++    return v && v[0] == '1';
++}
++
++void runtime_modhost_start(unsigned char *image, uint64_t size) {
++    const char *off = getenv("BB_MODHOST");
++    if (off && off[0] == '0') { puts("Mods: disabled (BB_MODHOST=0)"); return; }
++    static char dir[1024], cache[1100];
++    const char *d = getenv("BB_CODEMODS_DIR");
++    snprintf(dir, sizeof(dir), "%s", d && *d ? d : "bbmods");
++    snprintf(cache, sizeof(cache), "%s-cache", dir); /* beside, so it is not scanned as a mod */
++    dev_mode = env_on("BB_MODS_DEV");
++    open_log(dir);
++
++    modhost_config c;
++    memset(&c, 0, sizeof(c));
++    c.mods_dir = dir;
++    c.cache_dir = cache;
++    c.eboot_base = (uintptr_t)image;
++    c.eboot_size = (size_t)size;
++    c.ps4_eboot_base = 0x400000;
++    c.dev_mode = dev_mode;
++    c.safe_mode = env_on("BB_MODS_SAFE");
++    c.log = log_line;
++    c.platform.call_guarded = call_guarded;
++    c.input.keyboard = keyboard;
++    c.input.pad_buttons = pad;
++    bbport_modui_fill(&c.ui);
++    host = modhost_create(&c);
++    if (!host) { puts("Mods: could not start the mod host"); return; }
++    int n = modhost_scan(host);
++    printf("Mods: %d in %s%s%s; log: %s; F1 opens the mods overlay\n", n, dir, dev_mode ? " (hot reload on)" : "",
++           c.safe_mode ? " (safe mode: none loaded)" : "", log_path);
++}
++
++void runtime_modhost_pad(uint32_t buttons) { __atomic_store_n(&pad_buttons, buttons, __ATOMIC_RELAXED); }
++
++void runtime_modhost_frame(void) {
++    if (!host) return;
++    uint64_t self = thread_id();
++    if (!sync_thread) sync_thread = self;
++    if (self != sync_thread) return;
++    modhost_frame(host);
++    if (dev_mode) {
++        /* BB_MODS_DEV: report the sync point's rate once, to confirm it runs per frame. */
++        static time_t start;
++        static unsigned calls;
++        static int reported;
++        if (!start) start = time(NULL);
++        ++calls;
++        if (!reported && time(NULL) - start >= 10) {
++            printf("Mods: sync point ran %.1f times/s over 10 s (thread %llu)\n", calls / 10.0,
++                   (unsigned long long)sync_thread);
++            reported = 1;
++        }
++    }
++}
++
++const char *runtime_modhost_fault_owner(uintptr_t rip) { return host ? modhost_fault_owner(host, rip) : NULL; }
++
++void runtime_modhost_fault(uintptr_t rip) {
++    if (host) modhost_on_fault(host, rip);
++}
++
++int runtime_modhost_resolve(const char *guest, char *out, size_t size) {
++    if (!host) return 0;
++    const char *at = strstr(guest, "dvdroot_ps4/");
++    if (!at) return 0;
++    char path[1024];
++    if (!modhost_vfs_resolve(host, at, path, sizeof(path))) return 0;
++    size_t n = strlen(path);
++    if (n + 1 > size) return 0;
++    memcpy(out, path, n + 1);
++    return 1;
++}
++
++modhost *runtime_modhost_get(void) { return host; }
++
++#else /* !BB_MODHOST */
++
++void runtime_modhost_start(unsigned char *image, uint64_t size) { (void)image; (void)size; }
++void runtime_modhost_pad(uint32_t buttons) { (void)buttons; }
++void runtime_modhost_frame(void) {}
++const char *runtime_modhost_fault_owner(uintptr_t rip) { (void)rip; return NULL; }
++void runtime_modhost_fault(uintptr_t rip) { (void)rip; }
++int runtime_modhost_resolve(const char *guest, char *out, size_t size) {
++    (void)guest; (void)out; (void)size;
++    return 0;
++}
++void *runtime_modhost_get(void); /* referenced by gpu/shim/bbport_modui.cpp when that is built */
++void *runtime_modhost_get(void) { return NULL; }
++const char *runtime_modhost_log_path(void);
++const char *runtime_modhost_log_path(void) { return ""; }
++
++#endif
+diff --git a/src/runtime_modhost.h b/src/runtime_modhost.h
+new file mode 100644
+index 0000000..de7d9d6
+--- /dev/null
++++ b/src/runtime_modhost.h
+@@ -0,0 +1,19 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later
++ * Native code mods (runtime_modhost.c). No-ops unless built with BB_MODHOST. */
++#ifndef BB_RUNTIME_MODHOST_H
++#define BB_RUNTIME_MODHOST_H
++#include <stddef.h>
++#include <stdint.h>
++/* probe.c: after the eboot is mapped, relocated, patched and protected. */
++void runtime_modhost_start(unsigned char *image, uint64_t size);
++/* runtime_pad.c: the buttons the game just read, then the per-frame sync point. */
++void runtime_modhost_pad(uint32_t buttons);
++void runtime_modhost_frame(void);
++/* probe.c's fault handler: the mod whose code faulted (or NULL), and marking it. */
++const char *runtime_modhost_fault_owner(uintptr_t rip);
++void runtime_modhost_fault(uintptr_t rip);
++/* runtime_file.c: 1 and a host path in out when a mod overrides this guest path. */
++int runtime_modhost_resolve(const char *guest, char *out, size_t size);
++/* The mods log file (empty without a mod host). */
++const char *runtime_modhost_log_path(void);
++#endif
+diff --git a/src/runtime_pad.c b/src/runtime_pad.c
+index 2b4c2e7..8f40ac0 100644
+--- a/src/runtime_pad.c
++++ b/src/runtime_pad.c
+@@ -15,6 +15,7 @@
+ #include "runtime.h"
+ #include "gpu/bbgpu.h"
+ #include "runtime_input_config.h"
++#include "runtime_modhost.h"
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -742,6 +743,9 @@ static ABI int32_t pad_read_state(int32_t handle, PadData *data) {
+     pthread_mutex_lock(&lock);
+     sample(data); ++reads;
+     pthread_mutex_unlock(&lock);
++    /* Code mods: the game's per-frame pad poll is their sync point (outside the pad lock). */
++    runtime_modhost_pad(data->buttons);
++    runtime_modhost_frame();
+     return 0;
+ }
+ /* Buffered read: the port samples once per call, so one entry is returned. */

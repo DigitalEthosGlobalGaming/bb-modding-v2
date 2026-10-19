@@ -1,0 +1,14 @@
+[package]
+name = "__CRATE__"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+bbmod = { path = "__SDK__/sdk/rust/bbmod" }
+
+[profile.release]
+panic = "unwind"   # the SDK catches panics at the FFI boundary; do not use "abort"
+lto = true

@@ -1,0 +1,11 @@
+[package]
+name = "rust-hook-mod"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+bbmod = { path = "../../../sdk/rust/bbmod" }

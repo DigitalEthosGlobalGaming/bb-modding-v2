@@ -1,0 +1,6 @@
+[package]
+name = "bbmod-sys"
+description = "Raw FFI mirror of bbmod.h (ABI 1.0). Keep in sync with sdk/include/bbmod.h."
+version.workspace = true
+edition.workspace = true
+license.workspace = true

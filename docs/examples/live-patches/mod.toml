@@ -1,0 +1,18 @@
+[mod]
+id = "example.live-patches"
+name = "Live Patches"
+version = "0.1.0"
+abi = "1.1"
+dll = "live_patches.dll"
+
+[load]
+hot_reload = true
+
+[multiplayer]
+scope = "client"
+protocol = 1
+
+[patches]
+# bbport's patch file. A relative path is relative to this mod's folder.
+# Copy it here, or point at your bbport checkout, e.g. "C:/bbport/patches/Bloodborne.xml".
+xml = "Bloodborne.xml"

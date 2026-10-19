@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "smithbox": {
+    "version": "2.2.6",
+    "url": "https://github.com/vawser/Smithbox/releases/download/2.2.6/Smithbox_2_2_6_2026_09_20_b.zip",
+    "sha256": "9a147c319dccad4b6dd2a5adcc6f2ba3a5c11c40b079520c05260cb19994b3d7"
+  },
+  "decompiler": {
+    "repository": "https://github.com/katalash/DSLuaDecompiler.git",
+    "commit": "c27340ab1b898a584748dc7e43a516cc1f1684f6",
+    "archive_url": "https://codeload.github.com/katalash/DSLuaDecompiler/zip/c27340ab1b898a584748dc7e43a516cc1f1684f6",
+    "archive_sha256": "031da0f95de7bc07e66f737e54a5bae270169f07e2f6bd1702bb67f55aaf2f53",
+    "soulsformats_repository": "https://github.com/JKAnderson/SoulsFormats.git",
+    "soulsformats_commit": "44ffed4105d25ed1aa9953591d2bfb5321038eb3",
+    "soulsformats_archive_url": "https://codeload.github.com/JKAnderson/SoulsFormats/zip/44ffed4105d25ed1aa9953591d2bfb5321038eb3",
+    "soulsformats_archive_sha256": "ec01ead9843a7eb8fa869f88d66b21a8e1bafde8a6439b5aed8d240a02adc1e0",
+    "dotnet_sdk": "9.0.305",
+    "nuget": {
+      "filename": "system.commandline.2.0.0-beta4.22272.1.nupkg",
+      "url": "https://api.nuget.org/v3-flatcontainer/system.commandline/2.0.0-beta4.22272.1/system.commandline.2.0.0-beta4.22272.1.nupkg",
+      "sha256": "cd23be0989cc1fc75e0470c8f431e108f8fbf427b718ecc70b21f5fd3887c5c7"
+    }
+  },
+  "runtime": {
+    "repository": "https://github.com/Supermedo/bloodborne_pc.git",
+    "commit": "652f9a494c47cc8c1ab16f28b456372eaa8103f8",
+    "integration": "src/integration/bbport-modhost.patch",
+    "capabilities": "Legacy integration: overlay, shared input, hot reload and file overrides. Newer SDK services require matching port backends and runtime capability checks."
+  }
+}

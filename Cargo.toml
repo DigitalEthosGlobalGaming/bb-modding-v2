@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = ["sdk/rust/bbmod-sys", "sdk/rust/bbmod", "docs/examples/hello-rust", "docs/examples/live-patches", "docs/examples/devtools", "docs/examples/input-monitor", "docs/examples/input-counter", "docs/examples/ui-examples", "docs/examples/native-ui", "src/tests/rust-hook-mod"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"

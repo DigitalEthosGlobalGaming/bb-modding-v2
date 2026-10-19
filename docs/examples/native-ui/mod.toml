@@ -1,0 +1,9 @@
+[mod]
+id = "example.native-ui"
+name = "Native Menu Example"
+version = "0.1.0"
+abi = "1.8"
+dll = "native_ui_example.dll"
+hot_reload = true
+[multiplayer]
+scope = "client"

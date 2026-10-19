@@ -1,0 +1,107 @@
+> Historical workspace notes. Paths and validation describe the original workspace; use ../SETUP.md for this toolkit. Inspector and bulk recovered tables are excluded.
+
+Bloodborne content pipeline — CUSA03173 1.09
+
+Purpose
+  Compile independent content declarations into one merged PARAM/text/asset
+  overlay. Original game files are read-only. The game was already extracted at
+  game/CUSA03173/uroot/dvdroot_ps4; this tool unpacks the nested archives needed
+  for item development rather than duplicating the whole installation.
+
+Locations
+  modding/content.py                         command-line entry point
+  modding/content_pipeline.py                compiler and PARAM serializer
+  modding/content-workspace/extracted        65 PARAM files, English FMGs/JSON
+  modding/content-workspace/item-ids.lock.json persistent numeric assignments
+  modding/content-workspace/current.json     last successful build location
+  modding/content-workspace/builds/<hash>    immutable generated build
+  modding/mods/item-examples                 three example content packs
+  modding/modding-docs/content-sdk.md         Rust API and event limitations
+
+Commands (PowerShell from <workspace>)
+  C:/Python311/python.exe modding/content.py extract
+  C:/Python311/python.exe modding/content.py build --manifest modding/mods/item-examples/01-balance/content.json --manifest modding/mods/item-examples/02-ember/content.json --manifest modding/mods/item-examples/03-custom-asset/content.json
+  C:/Python311/python.exe modding/content.py verify
+  C:/Python311/python.exe modding/tests/test_content_pipeline.py
+
+Manifest version 1
+  Root: schema_version=1, namespace, items[], edits[], assets[].
+  Namespaces are lowercase ASCII identifiers starting with a letter. Item IDs
+  have exactly two components: namespace.name. bloodborne is reserved for the
+  original catalog. Example: example_ember.ember_cleaver.
+
+  items[]: id, base, type, name, description, tags[], fields{}, upgrades.
+    base is an exact bloodborne.<catalog-key>; custom-to-custom inheritance is
+    intentionally unsupported in this version. Inheritance uses the original
+    baseline, before another mod's edits. Original icons and behavior are copied.
+    type: weapon, armor, accessory, goods, consumable, key_item or material.
+    Consumable/key_item/material are metadata refinements of native Goods.
+    Type/tags do not invent native use behaviour; choose an appropriate donor
+    and explicitly change validated parameters to alter that behaviour.
+    tags: distinct lowercase identifiers, permitting underscores, dots/hyphens.
+    fields: actual validated field names to exact numeric assignments.
+    upgrades=true: clone the donor's eleven explicit +0..+10 rows; remap existing
+    originEquipWep references to the new rows. Unsupported/missing chains fail.
+    With upgrades=false, external origin links are cleared so an upgrade cannot
+    unexpectedly convert the custom weapon into its vanilla donor.
+
+  edits[]: item, upgrades, fields. Numeric values assign; {"add":N} and
+    {"multiply":N} compose in sorted namespace order. Assignments conflicting
+    with another edit of the same field fail. Integer arithmetic truncates toward
+    zero; out-of-range/non-finite values fail rather than wrapping or clamping.
+    Editing a parameter row affects all users of that definition, not one instance.
+
+  assets[]: source (relative to manifest), target (relative to dvdroot_ps4).
+    This version accepts new parts/*.partsbnd.dcx paths. A target already present
+    in the base game or another pack fails. Source path traversal is rejected.
+    The custom-model example supplies a stricter FLVER/binder validator/generator.
+
+Generated output
+  mod/ contains the single bbmod.compiled_content asset-only package.
+  content-registry.json / content_registry.rs expose all vanilla and new IDs,
+    tags and types. SDK item creation is a build declaration, not a live table
+    insertion. Rebuild code mods with the matching generated registry.
+  report.json records original hashes, field changes, new rows and output hashes.
+  build-files.json records all generated file hashes; verify checks these.
+  Text additions use the provided English labels in every existing item locale;
+    pre-existing localized strings and unrelated parameter tables are preserved.
+
+ID lifetime and saves
+  Keep item-ids.lock.json with the mod profile. Removed items retain reserved
+  assignments; do not delete/recreate this file or reuse IDs for unrelated items.
+  First allocations are deterministic for a sorted manifest set; adding a mod
+  uses the retained lock. Independently created profiles can have different maps.
+  Weapon reservations begin at 50,000,000, goods/armor/accessory at 6,000,000.
+  Allocations check existing rows and English text IDs; localized text collisions
+  also fail during compilation. These ranges are experimental until live checks.
+  A syntactically valid ID and successful file roundtrip do not prove every native
+  code path accepts the new item. Test acquisition, equipping, use, transformation,
+  upgrades, save/reload and removing the mod on a backed-up test character.
+  Content packs require a restart. Do not hot-remove rows/assets used by a loaded
+  character. A saved custom item needs its matching content and ID lock retained.
+
+Performance and compatibility
+  Build output is cached by source archive, manifest, asset, compiler/schema,
+  catalog and persistent-ID-lock hashes. An unchanged build verifies cached
+  outputs; it does not unpack/recompress them or scan live game memory.
+  Only this compiler's declarations are merged. Unrelated third-party whole-file
+  replacements can still override the combined archives and require conversion
+  or an explicit merge. A generated registry alone does not activate its files.
+  The current row writer preserves the validated local 64-bit PARAM format and
+  exact row widths. Unknown schemas/formats fail. Special-effect rows remain
+  excluded from this item compiler; their SDK schema has a known width mismatch.
+
+Gameplay hooks
+  on_attack delivers the existing bounded native behavior observations. The
+  payload has behavior/source, not a proven weapon/target/hit identity. Multiple
+  records may correspond to one action. It cannot change original native damage.
+  A confirmed on_hit producer is not implemented; supports_hit() is false.
+  Item grants use a separate host-owned native-update queue and status polling.
+  Granting a new item never installs missing content. Submission is not proof of
+  inventory insertion; confirm the inventory and eventual save/reload separately.
+
+Verification boundary
+  Offline compiler roundtrip, source preservation, conflict/ID tests, native
+  synthetic tests and Rust builds are evidence of implementation correctness.
+  They do not substitute for the pending gameplay tests. No game boot or computer
+  automation is performed by the content compiler or example build script.

@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "namespace": "example_balance",
+  "edits": [
+    {
+      "item": "bloodborne.saw_cleaver",
+      "upgrades": true,
+      "fields": {"attackBasePhysics": {"multiply": 1.1}}
+    }
+  ]
+}

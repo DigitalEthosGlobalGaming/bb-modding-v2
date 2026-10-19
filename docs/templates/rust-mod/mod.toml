@@ -1,0 +1,13 @@
+[mod]
+id = "__ID__"
+name = "__NAME__"
+version = "0.1.0"
+abi = "1.1"
+dll = "__CRATE__.dll"
+
+[load]
+hot_reload = true
+
+[multiplayer]
+scope = "client"      # client | session | host-authoritative
+protocol = 1

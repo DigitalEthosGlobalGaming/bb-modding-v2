@@ -1,0 +1,615 @@
+{
+  "source_repository": "https://github.com/DigitalEthosGlobalGaming/bb-modding",
+  "source_commit": "ae2b527b422891cfdcfd609e517ac31b2b54da59",
+  "policy": "Selected source only; no source Git history, generated catalogs, downloaded reference tables, Inspector/Openborne schemas, binaries or game assets imported.",
+  "files": [
+    {
+      "from": ".gitattributes",
+      "to": ".gitattributes"
+    },
+    {
+      "from": "CMakeLists.txt",
+      "to": "CMakeLists.txt"
+    },
+    {
+      "from": "COPYING",
+      "to": "COPYING"
+    },
+    {
+      "from": "Cargo.lock",
+      "to": "Cargo.lock"
+    },
+    {
+      "from": "Cargo.toml",
+      "to": "Cargo.toml"
+    },
+    {
+      "from": "LICENSE-APACHE",
+      "to": "LICENSE-APACHE"
+    },
+    {
+      "from": "LICENSE-MIT",
+      "to": "LICENSE-MIT"
+    },
+    {
+      "from": "LICENSING.md",
+      "to": "LICENSING.md"
+    },
+    {
+      "from": "cmake/mingw-w64-x86_64.cmake",
+      "to": "src/cmake/mingw-w64-x86_64.cmake"
+    },
+    {
+      "from": "docs/ABI.md",
+      "to": "docs/ABI.md"
+    },
+    {
+      "from": "docs/ARCHITECTURE.md",
+      "to": "docs/ARCHITECTURE.md"
+    },
+    {
+      "from": "docs/BB-TOOLS-LICENSE.txt",
+      "to": "docs/BB-TOOLS-LICENSE.txt"
+    },
+    {
+      "from": "docs/IMPORT.md",
+      "to": "docs/IMPORT.md"
+    },
+    {
+      "from": "docs/INTEGRATION.md",
+      "to": "docs/INTEGRATION.md"
+    },
+    {
+      "from": "docs/MODDING.md",
+      "to": "docs/MODDING.md"
+    },
+    {
+      "from": "docs/MODNET.md",
+      "to": "docs/MODNET.md"
+    },
+    {
+      "from": "docs/REVERSING.md",
+      "to": "docs/REVERSING.md"
+    },
+    {
+      "from": "docs/ROADMAP.md",
+      "to": "docs/ROADMAP.md"
+    },
+    {
+      "from": "docs/RUST_SDK.md",
+      "to": "docs/RUST_SDK.md"
+    },
+    {
+      "from": "examples/devtools/Cargo.toml",
+      "to": "docs/examples/devtools/Cargo.toml"
+    },
+    {
+      "from": "examples/devtools/dev.ps1",
+      "to": "docs/examples/devtools/dev.ps1"
+    },
+    {
+      "from": "examples/devtools/dev.sh",
+      "to": "docs/examples/devtools/dev.sh"
+    },
+    {
+      "from": "examples/devtools/mod.toml",
+      "to": "docs/examples/devtools/mod.toml"
+    },
+    {
+      "from": "examples/devtools/src/lib.rs",
+      "to": "docs/examples/devtools/src/lib.rs"
+    },
+    {
+      "from": "examples/hello-rust/Cargo.toml",
+      "to": "docs/examples/hello-rust/Cargo.toml"
+    },
+    {
+      "from": "examples/hello-rust/dev.ps1",
+      "to": "docs/examples/hello-rust/dev.ps1"
+    },
+    {
+      "from": "examples/hello-rust/dev.sh",
+      "to": "docs/examples/hello-rust/dev.sh"
+    },
+    {
+      "from": "examples/hello-rust/mod.toml",
+      "to": "docs/examples/hello-rust/mod.toml"
+    },
+    {
+      "from": "examples/hello-rust/src/lib.rs",
+      "to": "docs/examples/hello-rust/src/lib.rs"
+    },
+    {
+      "from": "examples/input-counter/Cargo.toml",
+      "to": "docs/examples/input-counter/Cargo.toml"
+    },
+    {
+      "from": "examples/input-counter/mod.toml",
+      "to": "docs/examples/input-counter/mod.toml"
+    },
+    {
+      "from": "examples/input-counter/src/lib.rs",
+      "to": "docs/examples/input-counter/src/lib.rs"
+    },
+    {
+      "from": "examples/input-monitor/Cargo.toml",
+      "to": "docs/examples/input-monitor/Cargo.toml"
+    },
+    {
+      "from": "examples/input-monitor/mod.toml",
+      "to": "docs/examples/input-monitor/mod.toml"
+    },
+    {
+      "from": "examples/input-monitor/src/lib.rs",
+      "to": "docs/examples/input-monitor/src/lib.rs"
+    },
+    {
+      "from": "examples/live-patches/Cargo.toml",
+      "to": "docs/examples/live-patches/Cargo.toml"
+    },
+    {
+      "from": "examples/live-patches/dev.ps1",
+      "to": "docs/examples/live-patches/dev.ps1"
+    },
+    {
+      "from": "examples/live-patches/dev.sh",
+      "to": "docs/examples/live-patches/dev.sh"
+    },
+    {
+      "from": "examples/live-patches/mod.toml",
+      "to": "docs/examples/live-patches/mod.toml"
+    },
+    {
+      "from": "examples/live-patches/src/lib.rs",
+      "to": "docs/examples/live-patches/src/lib.rs"
+    },
+    {
+      "from": "examples/native-ui/Cargo.toml",
+      "to": "docs/examples/native-ui/Cargo.toml"
+    },
+    {
+      "from": "examples/native-ui/mod.toml",
+      "to": "docs/examples/native-ui/mod.toml"
+    },
+    {
+      "from": "examples/native-ui/src/lib.rs",
+      "to": "docs/examples/native-ui/src/lib.rs"
+    },
+    {
+      "from": "examples/native-ui/tests/integration.c",
+      "to": "docs/examples/native-ui/tests/integration.c"
+    },
+    {
+      "from": "examples/ui-examples/.gitignore",
+      "to": "docs/examples/ui-examples/.gitignore"
+    },
+    {
+      "from": "examples/ui-examples/Cargo.toml",
+      "to": "docs/examples/ui-examples/Cargo.toml"
+    },
+    {
+      "from": "examples/ui-examples/README.md",
+      "to": "docs/examples/ui-examples/README.md"
+    },
+    {
+      "from": "examples/ui-examples/build.ps1",
+      "to": "docs/examples/ui-examples/build.ps1"
+    },
+    {
+      "from": "examples/ui-examples/mod.toml",
+      "to": "docs/examples/ui-examples/mod.toml"
+    },
+    {
+      "from": "examples/ui-examples/src/lib.rs",
+      "to": "docs/examples/ui-examples/src/lib.rs"
+    },
+    {
+      "from": "examples/ui-examples/tests/integration.c",
+      "to": "docs/examples/ui-examples/tests/integration.c"
+    },
+    {
+      "from": "host/include/modhost.h",
+      "to": "src/host/include/modhost.h"
+    },
+    {
+      "from": "host/src/character_profile.h",
+      "to": "src/host/src/character_profile.h"
+    },
+    {
+      "from": "host/src/characters.c",
+      "to": "src/host/src/characters.c"
+    },
+    {
+      "from": "host/src/characters.h",
+      "to": "src/host/src/characters.h"
+    },
+    {
+      "from": "host/src/characters_service.c",
+      "to": "src/host/src/characters_service.c"
+    },
+    {
+      "from": "host/src/code.c",
+      "to": "src/host/src/code.c"
+    },
+    {
+      "from": "host/src/equipment.c",
+      "to": "src/host/src/equipment.c"
+    },
+    {
+      "from": "host/src/equipment.h",
+      "to": "src/host/src/equipment.h"
+    },
+    {
+      "from": "host/src/equipment_service.c",
+      "to": "src/host/src/equipment_service.c"
+    },
+    {
+      "from": "host/src/gameplay.c",
+      "to": "src/host/src/gameplay.c"
+    },
+    {
+      "from": "host/src/host.c",
+      "to": "src/host/src/host.c"
+    },
+    {
+      "from": "host/src/internal.h",
+      "to": "src/host/src/internal.h"
+    },
+    {
+      "from": "host/src/inventory.c",
+      "to": "src/host/src/inventory.c"
+    },
+    {
+      "from": "host/src/inventory.h",
+      "to": "src/host/src/inventory.h"
+    },
+    {
+      "from": "host/src/inventory_service.c",
+      "to": "src/host/src/inventory_service.c"
+    },
+    {
+      "from": "host/src/item_actions.c",
+      "to": "src/host/src/item_actions.c"
+    },
+    {
+      "from": "host/src/loader.c",
+      "to": "src/host/src/loader.c"
+    },
+    {
+      "from": "host/src/manifest.c",
+      "to": "src/host/src/manifest.c"
+    },
+    {
+      "from": "host/src/modhost.c",
+      "to": "src/host/src/modhost.c"
+    },
+    {
+      "from": "host/src/native_attack.c",
+      "to": "src/host/src/native_attack.c"
+    },
+    {
+      "from": "host/src/native_menu.c",
+      "to": "src/host/src/native_menu.c"
+    },
+    {
+      "from": "host/src/native_menu.h",
+      "to": "src/host/src/native_menu.h"
+    },
+    {
+      "from": "host/src/native_menu_bridge.c",
+      "to": "src/host/src/native_menu_bridge.c"
+    },
+    {
+      "from": "host/src/native_menu_profile.h",
+      "to": "src/host/src/native_menu_profile.h"
+    },
+    {
+      "from": "host/src/native_observation.c",
+      "to": "src/host/src/native_observation.c"
+    },
+    {
+      "from": "host/src/net.c",
+      "to": "src/host/src/net.c"
+    },
+    {
+      "from": "host/src/pad.c",
+      "to": "src/host/src/pad.c"
+    },
+    {
+      "from": "host/src/platform_posix.c",
+      "to": "src/host/src/platform_posix.c"
+    },
+    {
+      "from": "host/src/platform_win.c",
+      "to": "src/host/src/platform_win.c"
+    },
+    {
+      "from": "host/src/ui_slots.c",
+      "to": "src/host/src/ui_slots.c"
+    },
+    {
+      "from": "host/src/ui_tables.c",
+      "to": "src/host/src/ui_tables.c"
+    },
+    {
+      "from": "host/src/vfs.c",
+      "to": "src/host/src/vfs.c"
+    },
+    {
+      "from": "host/src/xmlpatch.c",
+      "to": "src/host/src/xmlpatch.c"
+    },
+    {
+      "from": "integration/bbport-modhost.patch",
+      "to": "src/integration/bbport-modhost.patch"
+    },
+    {
+      "from": "integration/smoke/build-and-run.sh",
+      "to": "src/integration/smoke/build-and-run.sh"
+    },
+    {
+      "from": "integration/smoke/smoke.cpp",
+      "to": "src/integration/smoke/smoke.cpp"
+    },
+    {
+      "from": "sdk/include/bbmod.h",
+      "to": "sdk/include/bbmod.h"
+    },
+    {
+      "from": "sdk/rust/bbmod-sys/Cargo.toml",
+      "to": "sdk/rust/bbmod-sys/Cargo.toml"
+    },
+    {
+      "from": "sdk/rust/bbmod-sys/src/lib.rs",
+      "to": "sdk/rust/bbmod-sys/src/lib.rs"
+    },
+    {
+      "from": "sdk/rust/bbmod/Cargo.toml",
+      "to": "sdk/rust/bbmod/Cargo.toml"
+    },
+    {
+      "from": "sdk/rust/bbmod/src/character_definitions.rs",
+      "to": "sdk/rust/bbmod/src/character_definitions.rs"
+    },
+    {
+      "from": "sdk/rust/bbmod/src/character_references.rs",
+      "to": "sdk/rust/bbmod/src/character_references.rs"
+    },
+    {
+      "from": "sdk/rust/bbmod/src/characters.rs",
+      "to": "sdk/rust/bbmod/src/characters.rs"
+    },
+    {
+      "from": "sdk/rust/bbmod/src/content.rs",
+      "to": "sdk/rust/bbmod/src/content.rs"
+    },
+    {
+      "from": "sdk/rust/bbmod/src/cx.rs",
+      "to": "sdk/rust/bbmod/src/cx.rs"
+    },
+    {
+      "from": "sdk/rust/bbmod/src/detour.rs",
+      "to": "sdk/rust/bbmod/src/detour.rs"
+    },
+    {
+      "from": "sdk/rust/bbmod/src/dualsense.rs",
+      "to": "sdk/rust/bbmod/src/dualsense.rs"
+    },
+    {
+      "from": "sdk/rust/bbmod/src/entry.rs",
+      "to": "sdk/rust/bbmod/src/entry.rs"
+    },
+    {
+      "from": "sdk/rust/bbmod/src/equipment.rs",
+      "to": "sdk/rust/bbmod/src/equipment.rs"
+    },
+    {
+      "from": "sdk/rust/bbmod/src/gameplay.rs",
+      "to": "sdk/rust/bbmod/src/gameplay.rs"
+    },
+    {
+      "from": "sdk/rust/bbmod/src/inventory.rs",
+      "to": "sdk/rust/bbmod/src/inventory.rs"
+    },
+    {
+      "from": "sdk/rust/bbmod/src/item_actions.rs",
+      "to": "sdk/rust/bbmod/src/item_actions.rs"
+    },
+    {
+      "from": "sdk/rust/bbmod/src/items.rs",
+      "to": "sdk/rust/bbmod/src/items.rs"
+    },
+    {
+      "from": "sdk/rust/bbmod/src/key.rs",
+      "to": "sdk/rust/bbmod/src/key.rs"
+    },
+    {
+      "from": "sdk/rust/bbmod/src/lib.rs",
+      "to": "sdk/rust/bbmod/src/lib.rs"
+    },
+    {
+      "from": "sdk/rust/bbmod/src/native_menu.rs",
+      "to": "sdk/rust/bbmod/src/native_menu.rs"
+    },
+    {
+      "from": "sdk/rust/bbmod/src/ui.rs",
+      "to": "sdk/rust/bbmod/src/ui.rs"
+    },
+    {
+      "from": "templates/rust-mod/Cargo.toml",
+      "to": "docs/templates/rust-mod/Cargo.toml"
+    },
+    {
+      "from": "templates/rust-mod/dev.ps1",
+      "to": "docs/templates/rust-mod/dev.ps1"
+    },
+    {
+      "from": "templates/rust-mod/dev.sh",
+      "to": "docs/templates/rust-mod/dev.sh"
+    },
+    {
+      "from": "templates/rust-mod/mod.toml",
+      "to": "docs/templates/rust-mod/mod.toml"
+    },
+    {
+      "from": "templates/rust-mod/src/lib.rs",
+      "to": "docs/templates/rust-mod/src/lib.rs"
+    },
+    {
+      "from": "tests/CMakeLists.txt",
+      "to": "src/tests/CMakeLists.txt"
+    },
+    {
+      "from": "tests/data/Bloodborne.xml",
+      "to": "src/tests/data/Bloodborne.xml"
+    },
+    {
+      "from": "tests/rust-hook-mod/Cargo.toml",
+      "to": "src/tests/rust-hook-mod/Cargo.toml"
+    },
+    {
+      "from": "tests/rust-hook-mod/src/lib.rs",
+      "to": "src/tests/rust-hook-mod/src/lib.rs"
+    },
+    {
+      "from": "tests/tcompat.h",
+      "to": "src/tests/tcompat.h"
+    },
+    {
+      "from": "tests/test_character_mod.c",
+      "to": "src/tests/test_character_mod.c"
+    },
+    {
+      "from": "tests/test_characters.c",
+      "to": "src/tests/test_characters.c"
+    },
+    {
+      "from": "tests/test_crash.c",
+      "to": "src/tests/test_crash.c"
+    },
+    {
+      "from": "tests/test_crash_mod.c",
+      "to": "src/tests/test_crash_mod.c"
+    },
+    {
+      "from": "tests/test_discovery.c",
+      "to": "src/tests/test_discovery.c"
+    },
+    {
+      "from": "tests/test_discovery_mod.c",
+      "to": "src/tests/test_discovery_mod.c"
+    },
+    {
+      "from": "tests/test_equipment.c",
+      "to": "src/tests/test_equipment.c"
+    },
+    {
+      "from": "tests/test_examples.c",
+      "to": "src/tests/test_examples.c"
+    },
+    {
+      "from": "tests/test_frame_resources.c",
+      "to": "src/tests/test_frame_resources.c"
+    },
+    {
+      "from": "tests/test_gameplay.c",
+      "to": "src/tests/test_gameplay.c"
+    },
+    {
+      "from": "tests/test_host.c",
+      "to": "src/tests/test_host.c"
+    },
+    {
+      "from": "tests/test_inline.c",
+      "to": "src/tests/test_inline.c"
+    },
+    {
+      "from": "tests/test_inline_mod.c",
+      "to": "src/tests/test_inline_mod.c"
+    },
+    {
+      "from": "tests/test_inspector.c",
+      "to": "src/tests/test_inspector.c"
+    },
+    {
+      "from": "tests/test_inventory.c",
+      "to": "src/tests/test_inventory.c"
+    },
+    {
+      "from": "tests/test_inventory_service.c",
+      "to": "src/tests/test_inventory_service.c"
+    },
+    {
+      "from": "tests/test_item_actions.c",
+      "to": "src/tests/test_item_actions.c"
+    },
+    {
+      "from": "tests/test_mod.c",
+      "to": "src/tests/test_mod.c"
+    },
+    {
+      "from": "tests/test_native_attack.c",
+      "to": "src/tests/test_native_attack.c"
+    },
+    {
+      "from": "tests/test_native_menu.c",
+      "to": "src/tests/test_native_menu.c"
+    },
+    {
+      "from": "tests/test_native_menu_guest.c",
+      "to": "src/tests/test_native_menu_guest.c"
+    },
+    {
+      "from": "tests/test_native_observation.c",
+      "to": "src/tests/test_native_observation.c"
+    },
+    {
+      "from": "tests/test_net.c",
+      "to": "src/tests/test_net.c"
+    },
+    {
+      "from": "tests/test_net_mod.c",
+      "to": "src/tests/test_net_mod.c"
+    },
+    {
+      "from": "tests/test_pad.c",
+      "to": "src/tests/test_pad.c"
+    },
+    {
+      "from": "tests/test_regions.c",
+      "to": "src/tests/test_regions.c"
+    },
+    {
+      "from": "tests/test_rust.c",
+      "to": "src/tests/test_rust.c"
+    },
+    {
+      "from": "tests/test_rust_hook.c",
+      "to": "src/tests/test_rust_hook.c"
+    },
+    {
+      "from": "tests/test_shared_input.c",
+      "to": "src/tests/test_shared_input.c"
+    },
+    {
+      "from": "tests/test_ui_slots.c",
+      "to": "src/tests/test_ui_slots.c"
+    },
+    {
+      "from": "tests/test_ui_tables.c",
+      "to": "src/tests/test_ui_tables.c"
+    },
+    {
+      "from": "tests/test_win_suspend.c",
+      "to": "src/tests/test_win_suspend.c"
+    },
+    {
+      "from": "tests/test_xml.c",
+      "to": "src/tests/test_xml.c"
+    },
+    {
+      "from": "tests/test_xml_mod.c",
+      "to": "src/tests/test_xml_mod.c"
+    }
+  ]
+}

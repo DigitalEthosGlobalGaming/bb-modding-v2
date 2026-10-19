@@ -1,0 +1,23 @@
+# Licensing
+
+| Part | Licence | Why |
+|---|---|---|
+| `src/host/` | GPL-2.0-or-later | Links into bb-probe.exe, which is GPL-2.0-or-later. |
+| `sdk/include/bbmod.h`, `sdk/rust/**`, `docs/examples/**` | MIT OR Apache-2.0 | A mod loaded through the C ABI should be free to choose its own licence. |
+| `src/tests/` | GPL-2.0-or-later | Test harness links the host. |
+
+Open question for upstream: confirm the bbport maintainers accept a plugin exception that
+treats mods loaded through `bbmod.h` as separate works. Until then, assume the conservative
+reading and ask before distributing closed-source mods.
+
+Full texts are included as `COPYING`, `LICENSE-MIT`, and `LICENSE-APACHE`.
+Templates follow the SDK licence. Build/integration scripts and project docs
+follow GPL-2.0-or-later unless a file has its own notice. Preserve all notices.
+
+`docs/BB-TOOLS-LICENSE.txt` preserves the MIT notice for player layout evidence.
+Inspector and its generated Openborne/data tables are omitted pending
+redistribution review; the original local source remains untouched.
+
+Zydis and Zycore use MIT licences; distributions include their sources and
+licence texts. The XML test fixture comes from bbport's GPL-2.0-or-later tree
+and retains patch author metadata. It is not installed as a gameplay patch.
