@@ -3,7 +3,9 @@
 #define MH_NATIVE_MENU_H
 #include "internal.h"
 #define MH_MENU_LIMIT 1024
-#define MH_MENU_VISIBLE_ROWS 6
+/* The stock optionsetting.gfx Top command list has Item_0_0..Item_4_0.
+ * Other settings sprites have more slots, but the System factory uses Top. */
+#define MH_MENU_VISIBLE_ROWS 5
 #define MH_MENU_QUEUE 128
 typedef struct mh_menu_item {
     bbm_id id;

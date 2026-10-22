@@ -42,6 +42,12 @@ int main(void){
     f->pending[f->count++]=(bbm_menu_event){.kind=BBM_MENU_OPENED,.generation=4};strcpy(f->pending[0].screen,"Inventory");
     mh_menu_tick(h);assert(!h->api.menu_state(&a,&state)&&state.generation==4&&!strcmp(state.screen,"Inventory"));
     mh_res_release_all(&a);activate(f,old);mh_menu_tick(h);assert(aevents.events[BBM_MENU_ACTIVATED]==1);
+    /* Only a manager may replace the pause menu's Mods entry. */
+    n=node("mods-root",BBM_MENU_ACTION);strcpy(n.parent,"game.system");
+    assert(h->api.menu_register(&b,&n,&tmp)==BBM_ERR_STATE);
+    h->mods[1].m.manage=1;assert(!h->api.menu_register(&b,&n,&tmp));
+    n.kind=BBM_MENU_TOGGLE;assert(h->api.menu_register(&b,&n,&tmp)==BBM_ERR_STATE||h->api.menu_register(&b,&n,&tmp)==BBM_ERR_CONFLICT);
+    mh_res_release_all(&b);h->mods[1].m.manage=0;mh_menu_tick(h);
     n=node("information",BBM_MENU_INFO);assert(!h->api.menu_register(&b,&n,&tmp));mh_menu_tick(h);
     mh_menu_item info={0};for(size_t i=0;i<f->copy.count;i++)if(f->copy.items[i].id==tmp)info=f->copy.items[i];assert(info.id);
     unsigned before=aevents.events[BBM_MENU_ACTIVATED];activate(f,info);mh_menu_tick(h);assert(aevents.events[BBM_MENU_ACTIVATED]==before);

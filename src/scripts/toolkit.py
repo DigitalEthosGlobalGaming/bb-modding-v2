@@ -20,6 +20,12 @@ def run(*arguments, cwd=None, env=None):
     print('+', ' '.join(map(str,arguments)), flush=True)
     subprocess.run(list(map(str,arguments)),cwd=cwd,env=env,check=True)
 
+def powershell():
+    # Prefer the current PowerShell runtime, keeping its module environment consistent.
+    shell=shutil.which('pwsh') or shutil.which('powershell')
+    if not shell:raise ValueError('PowerShell is required to run this helper.')
+    return shell
+
 def sha(path):
     h=hashlib.sha256()
     with path.open('rb') as f:
@@ -174,6 +180,7 @@ def references(mode):
     run(sys.executable,Path(__file__).with_name('decompile_lua.py'),'--source',assets,'--raw',out)
     run(sys.executable,Path(__file__).with_name('generate_items.py'),'--game',assets)
     run(sys.executable,Path(__file__).with_name('generate_catalogs.py'),'--game',assets)
+    run(sys.executable,Path(__file__).with_name('annotate_scripts.py'))
     run(sys.executable,Path(__file__).with_name('generate_profiles.py'),Path(assets).parent/'eboot.bin')
     save(ROOT/'.local/references.json',{'mode':mode,'game':assets,'completed':True})
 
@@ -236,7 +243,7 @@ def deploy_files(runtime, files):
 def require_game_closed():
     # Refuse replacement while any game/launcher instance is running.
     if os.name=='nt':
-        check=subprocess.check_output(['powershell','-NoProfile','-Command',
+        check=subprocess.check_output([powershell(),'-NoProfile','-Command',
             'Write-Output @(Get-Process -Name bb-probe,Bloodborne,"Play Bloodborne" -ErrorAction SilentlyContinue).Count'],text=True)
         if check.strip()!='0':raise ValueError('Close the game and launcher before deployment.')
 
@@ -265,12 +272,28 @@ def main():
     commands.add_parser('doctor')
     tools=commands.add_parser('install-tools');tools.add_argument('--tool-cache',type=Path)
     ref=commands.add_parser('extract');ref.add_argument('--mode',choices=['full','scripts'],default='full')
+    annotate=commands.add_parser('annotate');annotate.add_argument('--placements',type=Path)
     new=commands.add_parser('new-mod');new.add_argument('id');new.add_argument('name')
     mod=commands.add_parser('deploy-mod');mod.add_argument('project',type=Path)
     roll=commands.add_parser('rollback');roll.add_argument('backup',type=Path)
     commands.add_parser('smithbox')
     commands.add_parser('build-runtime')
     commands.add_parser('deploy-runtime')
+    build=commands.add_parser('build-mod',help='Build an independent mod project without deployment')
+    build.add_argument('project',type=Path);build.add_argument('--test',action='store_true')
+    content=commands.add_parser('content',help='Run the canonical content compiler')
+    content.add_argument('arguments',nargs=argparse.REMAINDER)
+    assets=commands.add_parser('native-assets',help='Generate private native-menu assets from the selected game')
+    assets.add_argument('--game',type=Path);assets.add_argument('--out',type=Path)
+    ui=commands.add_parser('ui-inspect',help='Inspect GFX structure into private read-only research reports')
+    ui.add_argument('--game',type=Path);ui.add_argument('--out',type=Path)
+    ui.add_argument('--movie',action='append')
+    ui.add_argument('--decompile',action='store_true')
+    links=commands.add_parser('script-links',help='Generate an observer project script-reference index')
+    links.add_argument('--mod',type=Path,required=True);links.add_argument('--check',action='store_true')
+    links.add_argument('--raw',type=Path);links.add_argument('--decompiled',type=Path)
+    maps=commands.add_parser('map-placements',help='Export private character map placements')
+    maps.add_argument('--output',type=Path,required=True)
     args=parser.parse_args()
     if args.command=='setup':
         cfg=validate(args.game,args.runtime);save(CONFIG,cfg)
@@ -282,11 +305,45 @@ def main():
         print('Runtime marker is indicative only. No gameplay/capability validation has been performed.')
     elif args.command=='install-tools':install_tools(args.tool_cache)
     elif args.command=='extract':references(args.mode)
+    elif args.command=='annotate':
+        command=[sys.executable,Path(__file__).with_name('annotate_scripts.py')]
+        if args.placements:command+=['--placements',args.placements]
+        run(*command)
     elif args.command=='new-mod':new_mod(args.id,args.name)
     elif args.command=='deploy-mod':deploy_mod(args.project)
     elif args.command=='rollback':rollback(args.backup)
     elif args.command=='build-runtime':
-        run('powershell','-NoProfile','-ExecutionPolicy','Bypass','-File',Path(__file__).with_name('build-runtime.ps1'))
+        run(powershell(),'-NoProfile','-ExecutionPolicy','Bypass','-File',Path(__file__).with_name('build-runtime.ps1'))
+    elif args.command=='build-mod':
+        arguments=[powershell(),'-NoProfile','-ExecutionPolicy','Bypass','-File',
+                   Path(__file__).with_name('build-mod.ps1'),'-Project',args.project.resolve()]
+        if args.test:arguments.append('-Test')
+        run(*arguments)
+    elif args.command=='content':
+        run(sys.executable,Path(__file__).with_name('content.py'),*args.arguments)
+    elif args.command=='native-assets':
+        arguments=[sys.executable,Path(__file__).with_name('native_menu_assets.py')]
+        if args.game:arguments+=['--game',args.game.resolve()]
+        if args.out:arguments+=['--out',args.out.resolve()]
+        run(*arguments)
+    elif args.command=='ui-inspect':
+        arguments=[sys.executable,Path(__file__).with_name('inspect_ui.py')]
+        if args.game:arguments+=['--game',args.game.resolve()]
+        if args.out:arguments+=['--out',args.out.resolve()]
+        for movie in args.movie or []:arguments+=['--movie',movie]
+        if args.decompile:arguments.append('--decompile')
+        run(*arguments)
+    elif args.command=='script-links':
+        arguments=[sys.executable,Path(__file__).with_name('generate_observer_script_links.py'),'--mod',args.mod.resolve()]
+        if args.check:arguments.append('--check')
+        if args.raw:arguments+=['--raw',args.raw.resolve()]
+        if args.decompiled:arguments+=['--decompiled',args.decompiled.resolve()]
+        run(*arguments)
+    elif args.command=='map-placements':
+        shell=shutil.which('pwsh')
+        if not shell:raise ValueError('Map export requires PowerShell 7 (pwsh).')
+        run(shell,'-NoProfile','-ExecutionPolicy','Bypass','-File',
+            Path(__file__).with_name('export-map-script-placements.ps1'),'-Output',args.output.resolve())
     elif args.command=='deploy-runtime':
         cfg=config();stage=ROOT/'.local/runtime-stage'
         manifest=json.loads((stage/'manifest.json').read_text())

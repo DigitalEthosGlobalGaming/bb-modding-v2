@@ -1,72 +1,86 @@
-# Development workspace consolidation
+# Development workspace consolidation — 20 October 2026
 
-The toolkit is now the home of the framework and development material. Only the
-separate projects under the original modding/mods directory and the standalone
-adaptive-trigger repository remain outside it. The installed game, packages, runtime
-user data, shortcuts and installation provenance retain their original locations.
+`bb-modding` is the active toolkit root. Framework source lives in `src/host`, the SDK
+in `sdk`, scripts in `src/scripts`, examples/templates in `docs`, and agent guidance in
+`.agents`. Run toolkit commands here. Existing independent projects stay in
+`../modding/mods/` and `../modding/bb-modding-adaptive-triggers/`; new projects can use
+ignored `mods/` or their own repository. Duplicate project copies have been retired.
 
-## Current source
+## Daily work
 
-Authored native-menu/live-list controls, text-entry services, SDK additions and converted
-example mods were brought forward into src/host, sdk and docs/examples. Catalog includes
-and locally generated executable-profile safeguards were retained. Native-menu profile
-updates are stored as address/length/hash metadata; actual bytes are regenerated privately.
-The SDK is now ABI 1.10. This does not upgrade the pinned legacy runtime bridge.
-The authored game-ui skill and its references are available under .agents/skills/game-ui.
+```powershell
+.\bb.ps1 doctor
+.\bb.ps1 build-mod ../modding/mods/character-observer --test
+.\bb.ps1 content verify
+.\bb.ps1 native-assets
+.\bb.ps1 script-links --mod ../modding/mods/character-observer --check
+.\bb.ps1 map-placements --output .local/map-placements.json
+```
 
-## Preserved work in progress
+PowerShell 7 is preferred for build helpers and required for map placement export.
+The toolkit builds/packages retained projects without deployment. Keep generated catalogs,
+overlays, reference exports and machine settings private. Preserve the existing content
+item-ID allocation lock in `.local/content-workspace` and curated reference snapshots in
+`.local/reference-inputs`; generators validate provenance before applying private labels.
 
-The original development workspace is at **.local/work-in-progress/modding/**:
+## One runtime source workflow
 
-- bloodborne_pc/: complete original port checkout, including its Git metadata, staged
-  changes, unstaged changes, untracked work, submodules and unresolved merges.
-- bb-modding/: the previous standalone framework repository, including its history.
-- Top-level development scripts, research, skills, tests, content workspace and trial outputs.
+`tools/bloodborne_pc` is the only active port checkout, pinned at
+`b3fc78bff0997f75f73e14a5fffeb1141f0cea70` through `src/scripts/tools.lock.json`.
+The authored `src/integration/bbport-modhost.patch` brings forward the current bridge;
+preparation copies canonical host/SDK source and records hashes, rejecting edited copies.
+Edit canonical source and use the documented prepare/build workflow in RUNTIME.md.
+ABI 1.10 native services remain profile/capability gated. The bridge includes shared
+input/text, overlay/tables, reload, overrides and pad effects/USB haptics.
 
-Both relocated repositories were checked against their original HEAD, Git index hash and
-porcelain working-tree status; all matched. No merge was resolved or local change discarded.
-The preserved port is not a clean reproducible release: finish its outstanding merge
-conflicts before attempting a fresh full build. Old CMake build directories contain paths
-from before relocation; configure a fresh build directory or use cmake --fresh.
+The old WIP merge conflicts were resolved for integration; its uncommitted merge and Git
+metadata were archived, with the original conflict stages/index separately preserved.
+There is no active WIP checkout or compatibility junction tree. The installed runtime
+remains unchanged; a separate staged runtime is available under `.local/runtime-stage`.
 
-Compatibility junctions inside .local/work-in-progress expose the unchanged game/runtime,
-relocated tools/reference trees and retained external mod projects at the relative paths
-expected by historical scripts. They do not move the game or add files to it. Avoid
-recursive operations that follow these junctions. Historical deployment/launch scripts
-still require an explicit request to run; none were run during consolidation.
+## Retired material and recovery
 
-## Other development folders
+Verified private archives under `.local/archive/source-history/` preserve:
 
-| Previous material | Location inside toolkit |
+| Archive | Contents |
 | --- | --- |
-| Old tools tree | tools/legacy/ |
-| Earlier unpacked/decompiled reference tree | game-unpacked/legacy/ |
-| Setup utilities and private research checkouts | .local/archive/setup-tools/ |
-| Existing runtime rollback backups | .local/archive/runtime-backups/ |
-| Standalone test caches | .local/archive/test-caches/ |
-| Source-tree metadata and previous Smithbox launcher | .local/archive/ |
+| `port-wip-source.zip` + JSON manifest | Original port source, Git/index/merge state, submodule source and authored materialized framework files |
+| `previous-framework.bundle` + state/settings | Complete previous clean framework Git history and repository settings |
+| `previous-runtime-source.zip` + JSON manifest | Superseded pinned runtime checkout source and Git metadata |
+| `previous-workspace-evidence.zip` + JSON manifest | Historical helpers, research, content state and trial outputs, including trial user data |
+| `legacy-dsluadecompiler.bundle` | Complete old decompiler Git history; unique untracked files are preserved with the tool audit |
+| `toolkit-mod-source-copies-20261020-verified.zip` | All 60 source/metadata files from the five duplicate toolkit mod copies |
 
-Existing duplicate references/backups were retained rather than discarded. The relocation
-journal, original Git-state snapshots, source import list and backups of changed external
-mod path references are in .local/consolidation/. These are private machine records.
+Archive contents were read back and SHA-256 checked before source deletion. Restore into
+a separate review directory, verify its manifest, and inspect historical scripts before
+use; their old build/deployment paths are not current workflows. Do not overlay archives
+onto the active toolkit. Original conflict snapshots are in
+`.local/consolidation/runtime-20261020`; cleanup manifests are in `.local/cleanup`.
 
-Retained local mod projects remain in their original directories. Their local dependency
-and build-script references were repaired to reach the relocated original SDK/scripts.
-The independent adaptive-trigger repository's pinned Git dependency was left intact.
-Active content-build and latest-trial pointers were repaired, with their original JSON
-saved in the consolidation records. Historical logs/reports were retained as evidence.
+Canonical references remain in `game-unpacked/raw`, `decompiled` and `annotated`; active
+pinned tools remain in `tools`. The former `game-unpacked/legacy` and `tools/legacy`
+trees were removed after exact hash comparison. Approximately 49.17 GiB of duplicate
+payload was identified. Seven unique reference metadata files and 295 unique tool files
+(including settings, provenance and Git material) were preserved under
+`.local/cleanup/duplicate-audit`. Historical WIP/build caches and duplicate mod build
+outputs were also removed. Current validated build caches may be regenerated normally.
 
-## Checks run after consolidation
+Keep `.local/archive/setup-tools`, private research, runtime rollback backups and source
+history. Game packages, extracted originals, installed runtime, saves and settings remain
+external inputs. The old `modding` directory now contains only the retained mod projects.
 
-- Rust workspace tests: 28 SDK tests and two UI example tests passed; three existing
-  documentation examples remain ignored.
-- CLANG64/Zydis native build and CTest: 27/27 passed, including text entry, native controls,
-  converted example DLLs and host unload/reload ownership.
-- Python toolkit/archive tests: 12/12 passed.
-- Offline Cargo checks passed for the retained adaptive-trigger, character-observer and
-  both hook mod projects against the relocated SDK.
-- Regenerated executable profiles passed their address-specific verification hashes.
-- Publication audit excludes the WIP repositories, archives, game references and tools.
+## Verification and limits
 
-No runtime was deployed and no gameplay validation was performed during this migration.
-No new commit or push was made.
+A fresh toolkit build passed 28/28 native tests, 33 Python tests, 28 Rust SDK tests and
+two UI tests (three documentation examples intentionally ignored). The native suite now
+builds its Rust DLL fixtures before CTest. The isolated full runtime build passed 395
+build targets and 2/2 text/IME tests; its 147 staged files were hash checked.
+Retained observer, hook, item and adaptive projects passed their relevant builds/tests.
+Content verification, stock native assets, 2,890 map placements across 24 maps and observer
+links (2,842 resolved; 524 unresolved) were checked. Unresolved links remain research gaps.
+Private catalog labels and content allocations were preserved, including original output
+hashes. See VALIDATION.md and private cleanup logs for actual commands and evidence.
+
+No game deployment, launch, gameplay validation, commit or push was performed. Publication
+auditing excludes private game-derived material and archives; it does not replace manual
+provenance/licence review.

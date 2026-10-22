@@ -1,5 +1,10 @@
 {
   "schema_version": 1,
+  "ui_decompiler": {
+    "version": "26.4.0",
+    "url": "https://github.com/jindrapetrik/jpexs-decompiler/releases/download/version26.4.0/ffdec_26.4.0.zip",
+    "sha256": "56ce960aeafc7caf034e2052ba49f878a883f7c7ca690da6eeffca9587b5e4b9"
+  },
   "smithbox": {
     "version": "2.2.6",
     "url": "https://github.com/vawser/Smithbox/releases/download/2.2.6/Smithbox_2_2_6_2026_09_20_b.zip",
@@ -23,8 +28,8 @@
   },
   "runtime": {
     "repository": "https://github.com/Supermedo/bloodborne_pc.git",
-    "commit": "652f9a494c47cc8c1ab16f28b456372eaa8103f8",
+    "commit": "b3fc78bff0997f75f73e14a5fffeb1141f0cea70",
     "integration": "src/integration/bbport-modhost.patch",
-    "capabilities": "Legacy integration: overlay, shared input, hot reload and file overrides. Newer SDK services require matching port backends and runtime capability checks."
+    "capabilities": "Current Windows bridge: overlay/tables, shared input, reload, overrides, pad effects/USB haptics and shared game/mod text entry. ABI 1.10 host native services remain fingerprint/profile gated; build and synthetic checks do not establish gameplay behavior."
   }
 }

@@ -27,8 +27,46 @@ static void G fake_cleanup(void*b){(void)b;while(nrows)destroy(rows[--nrows],1);
 static void G fake_copy(void*to,const void*from){
     void *context=*(void**)((char*)from+0x1180);assert(!context||context==(void*)0x5000);memcpy(to,from,0x1180);
 }
-static void G fake_refresh(void*w,void*root){assert(w==live_widget&&root==live_widget+0xd30);int32_t zero=0;memcpy((char*)w+0xae4,&zero,4);refreshes++;}
+static unsigned list_phase;
+static void G fake_count(void*l,int32_t count){
+    assert(l==live_widget+0xa70&&count>=1&&count<=5&&list_phase==0);
+    memcpy(live_widget+0xae0,&count,4);list_phase=1;
+}
+static int G fake_focus(void*l,int32_t selected){
+    int32_t count;memcpy(&count,live_widget+0xae0,4);
+    assert(l==live_widget+0xa70&&list_phase==1&&selected>=0&&selected<count);
+    memcpy(live_widget+0xae4,&selected,4);list_phase=2;return 1;
+}
+static void G fake_layout(void*l){assert(l==live_widget+0xa70&&list_phase==2);list_phase=3;}
+static void G fake_redraw(void*l){
+    int32_t pending;memcpy(&pending,live_widget+0xae8,4);
+    assert(l==live_widget+0xa70&&list_phase==3&&pending==-1);
+    list_phase=0;refreshes++;
+}
 static void G fake_selection(void*w){assert(w==live_widget);selections++;}
+static int rows_ready=1;
+static int G fake_ready(void *list,size_t count){assert(list==live_widget+0xa70&&count>=1&&count<=5&&list_phase==0);return rows_ready;}
+static unsigned movie_reads,movie_releases,row_reads;
+static double movie_alpha=100;static int movie_visible=1,movie_valid=1;
+static void **test_movie_vt;static void *expected_links;
+static int G fake_display(void *iface,void *object,void *display){
+    assert(iface==&test_movie_vt&&object==(void*)0x1234);
+    memset(display,0,0xd8);double fields[]={0,0,0,100,100,movie_alpha};memcpy(display,fields,sizeof fields);
+    ((unsigned char*)display)[0xd6]=(unsigned char)movie_visible;movie_reads++;return movie_valid;
+}
+static void G fake_movie_release(void *iface,void *links,void *object){
+    assert(iface==&test_movie_vt&&links==expected_links&&object==(void*)0x1234);movie_releases++;
+}
+static void movie_fixture(native_movie_value *value){
+    memset(value,0,sizeof *value);value->interface=&test_movie_vt;value->type=0x4a;value->object=(void*)0x1234;
+    expected_links=value->links;
+}
+static void *G fake_row_read(void *out,void *list,int32_t slot){
+    assert(list==live_widget+0xa70&&slot>=0&&slot<5);row_reads++;
+    native_movie_row *row=out;memset(row,0,sizeof *row);
+    row->vt=(void**)0x1111;row->links[2]=0x2222;row->owner=0x3333;
+    movie_fixture(&row->value);return row;
+}
 static void G fake_frame(void*w,void*input,float elapsed){assert(w==live_widget&&input==(void*)0x123&&elapsed==0.25f);frames++;}
 static uintptr_t G __attribute__((noinline)) fake_ctor(uintptr_t step,uintptr_t ctx,uintptr_t type,uintptr_t name,uintptr_t factory,uintptr_t arg,uintptr_t last){
     assert(step==1&&ctx==2&&type==3&&name&&factory==5&&arg==6&&last==7);return 123;
@@ -39,7 +77,8 @@ int main(void){
     char longest[192];memset(longest,'x',191);longest[191]=0;uint16_t converted[192];wide(longest,converted,192);
     assert(converted[190]=='x'&&converted[191]==0);
     ops=(native_ops){.init=fake_init,.append=fake_append,.finalize=fake_finalize,.cleanup=fake_cleanup,.caption=fake_caption,
-        .factory=fake_factory,.copy=fake_copy,.refresh=fake_refresh,.selection=fake_selection};
+        .factory=fake_factory,.copy=fake_copy,.list_count=fake_count,.list_focus=fake_focus,
+        .list_layout=fake_layout,.list_redraw=fake_redraw,.list_ready=fake_ready,.selection=fake_selection};
     bridge.enabled=1;bridge.base=0x10000000;
     bridge.originals[2]=(void*)fake_ctor;uint16_t native_name[]={'I','n','v','e','n','t','o','r','y',0};
     assert(ctor_detour(1,2,3,(uintptr_t)native_name,5,6,7)==123);
@@ -56,6 +95,15 @@ int main(void){
     strcpy(item->node.parent,"a.mod/settings");strcpy(item->node.label,"An action");assert(publish(NULL,s));
     mh_menu_item listed[3];assert(items_for("game.mods",listed,3)==2);
     assert(strstr(listed[0].node.label,"Loaded")&&strstr(listed[1].node.label,"Disabled"));
+    /* The pause menu's Mods entry is the built-in link until a manager registers "mods-root". */
+    mh_menu_item root;root_item(&root);
+    assert(root.node.kind==BBM_MENU_LINK&&!strcmp(root.node.label,"Mods")&&!strcmp(root.node.target,"game.mods")&&root.id==0);
+    s->count=2;mh_menu_item *over=&s->items[1];over->id=77;over->version=3;over->node.kind=BBM_MENU_ACTION;over->node.flags=BBM_MENU_ENABLED;
+    strcpy(over->node.parent,"game.system");strcpy(over->node.key,"mods-root");strcpy(over->node.label,"Mods");assert(publish(NULL,s));
+    root_item(&root);assert(root.id==77&&root.node.kind==BBM_MENU_ACTION);
+    mh_menu_item system_items[3];assert(items_for("game.system",system_items,3)==0); /* not listed twice */
+    over->node.flags=0;assert(publish(NULL,s));root_item(&root);assert(root.id==0&&root.node.kind==BBM_MENU_LINK); /* disabled: built-in again */
+    s->count=1;assert(publish(NULL,s));
     assert(append(NULL,item)&&nrows==1);callable *held=rows[--nrows];assert(held->data->refs==1);
     struct{callable object;uint64_t canary[2];} inline_copy={.canary={123,456}};
     assert(clone(held,&inline_copy.object)==&inline_copy.object&&inline_copy.canary[0]==123&&inline_copy.canary[1]==456);
@@ -90,7 +138,10 @@ int main(void){
     s->items[1]=s->items[0];s->items[0].id=43;s->items[0].version=8;s->count=2;s->revision=2;
     assert(publish(NULL,s));refresh_view(live_widget);
     int32_t focused=-1;memcpy(&focused,live_widget+0xae4,4);assert(focused==1&&refreshes==2);
-    s->count=1;s->revision=3;assert(publish(NULL,s));refresh_view(live_widget);
+    s->count=1;s->revision=3;assert(publish(NULL,s));rows_ready=0;refresh_view(live_widget);
+    assert(refreshes==2&&list_phase==0); /* resize waits; pending revision survives */
+    int32_t held_count;memcpy(&held_count,live_widget+0xae0,4);assert(held_count==2);
+    rows_ready=1;refresh_view(live_widget);
     memcpy(&focused,live_widget+0xae4,4);assert(focused==0&&refreshes==3);
     s->count=0;s->revision=4;assert(publish(NULL,s));refresh_view(live_widget);assert(refreshes==4);
     /* Native update arguments, including the float register, pass through. */
@@ -112,16 +163,16 @@ int main(void){
     }
     assert(publish(NULL,s));refresh_view(live_widget);
     size_t view=64;for(size_t i=0;i<64;i++)if(bridge.views[i].widget==(uintptr_t)live_widget){view=i;break;}
-    assert(view<64&&bridge.views[view].page==0&&bridge.views[view].count==5);
+    assert(view<64&&bridge.views[view].page==0&&bridge.views[view].count==4);
     unsigned steps=finalized;unsigned seen=0;
-    for(size_t page=0;page<4;page++){
+    for(size_t page=0;page<5;page++){
         mh_menu_item page_rows[13];size_t requested=page;
         size_t visible=items_for("a.mod/settings",page_rows,13);
-        visible=page_items(page_rows,visible,&requested);assert(requested==page&&visible<=6);
+        visible=page_items(page_rows,visible,&requested);assert(requested==page&&visible<=5);
         for(size_t i=0;i<visible;i++)if(page_rows[i].id){
             assert(page_rows[i].id>=100&&page_rows[i].id<113);seen|=1u<<(page_rows[i].id-100);
         }
-        if(page==3)break;
+        if(page==4)break;
         assert(!strcmp(page_rows[visible-1].node.target,"__bbmod.page/next"));
         assert(append(NULL,&page_rows[visible-1])&&nrows==1);callable *navigation=rows[--nrows];
         unsigned before=refreshes;invoke(&out,navigation,live_widget);destroy(navigation,1);
@@ -130,19 +181,19 @@ int main(void){
         memcpy(&focused,live_widget+0xae4,4);assert(focused==0);
     }
     assert(seen==0x1fff&&finalized==steps);
-    mh_menu_item page_rows[13];size_t page=3;
+    mh_menu_item page_rows[13];size_t page=4;
     size_t visible=items_for("a.mod/settings",page_rows,13);
     visible=page_items(page_rows,visible,&page);assert(visible==2);
     assert(!strcmp(page_rows[visible-1].node.target,"__bbmod.page/previous"));
     assert(append(NULL,&page_rows[visible-1]));held=rows[--nrows];
     invoke(&out,held,live_widget);destroy(held,1);refresh_view(live_widget);
-    assert(bridge.views[view].page==2&&finalized==steps);
+    assert(bridge.views[view].page==3&&finalized==steps);
     /* A stable selected row follows a reorder onto a different page. */
     int32_t first=0;memcpy(live_widget+0xae4,&first,4);
-    mh_menu_item swap=s->items[8];s->items[8]=s->items[1];s->items[1]=swap;
+    mh_menu_item swap=s->items[9];s->items[9]=s->items[1];s->items[1]=swap;
     ++s->revision;assert(publish(NULL,s));refresh_view(live_widget);
     memcpy(&focused,live_widget+0xae4,4);
-    assert(bridge.views[view].page==0&&focused==1&&bridge.views[view].ids[1]==108);
+    assert(bridge.views[view].page==0&&focused==1&&bridge.views[view].ids[1]==109);
     s->count=2;++s->revision;assert(publish(NULL,s));refresh_view(live_widget);
     assert(bridge.views[view].page==0&&bridge.views[view].count==2&&finalized==steps);
     bridge.live=0;
@@ -152,6 +203,30 @@ int main(void){
      * The synthetic function deliberately consumes the stack argument. */
     modhost_config cfg={0};cfg.safe_mode=1;cfg.cache_dir="native-menu-guest-test-cache";
     modhost *h=modhost_create(&cfg);assert(h);struct bbm_mod owner={.host=h};mh_hook *hook=NULL;
+    /* Regress the real layout distinction that crashed the first tracer. Row
+     * header/owner fields deliberately cannot be used as a movie interface. */
+    bridge.owner.host=h;void *methods[29]={0};methods[0xe0/8]=(void*)fake_display;
+    /* Composition observation never invokes a factory or assumes its layout.
+     * Unreadable descriptors and addresses outside the image remain harmless. */
+    bridge.component_trace_budget=2;
+    trace_component_step("inventory-fixture",1,3,1);
+    trace_component_step("inventory-fixture",2,3,0);
+    assert(bridge.component_trace_budget==0&&!component_trace_take());
+    assert(image_rva(1)==0);
+    methods[0x18/8]=(void*)fake_movie_release;test_movie_vt=methods;
+    native_movie_value movie={0};movie_fixture(&movie);trace_movie_value(&movie,"test","root",-1);
+    assert(movie_reads==1&&movie_releases==1&&!movie.interface&&!movie.type);
+    native_movie_row row={0};row.vt=(void**)0x1111;row.links[2]=0x2222;row.owner=0x3333;
+    movie_fixture(&row.value);trace_row_value(&row,"test","row",0);
+    assert(movie_reads==2&&movie_releases==2&&row.links[2]==0x2222&&row.owner==0x3333);
+    bridge.trace=1;ops.list_row=fake_row_read;trace_list(live_widget,&bridge.views[view],"test");bridge.trace=0;
+    assert(row_reads==5&&movie_reads==7&&movie_releases==7);
+    movie_alpha=0;assert(!list_movie_ready(live_widget+0xa70,4));
+    movie_alpha=50;assert(!list_movie_ready(live_widget+0xa70,4));
+    movie_alpha=100;assert(list_movie_ready(live_widget+0xa70,4));
+    movie_visible=0;assert(!list_movie_ready(live_widget+0xa70,4));movie_visible=1;
+    movie_valid=0;assert(!list_movie_ready(live_widget+0xa70,4));movie_valid=1;
+    assert(!list_movie_ready(live_widget+0xa70,6)&&movie_reads==movie_releases);
     assert(mh_hook_inline(&owner,(uintptr_t)fake_ctor,(void*)ctor_detour,&bridge.originals[2],&hook)==BBM_OK);
     bridge.enabled=1;ctor_fn volatile entry=fake_ctor;
     assert(entry(1,2,3,(uintptr_t)native_name,5,6,7)==123);

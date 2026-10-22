@@ -1,51 +1,13 @@
-> Historical workspace notes. Paths and validation describe the original workspace; use ../SETUP.md for this toolkit. Inspector and bulk recovered tables are excluded.
+# Development workflow
 
-# Create or modify a Rust mod
+Use [MODDING.md](../MODDING.md) for project creation, canonical SDK dependencies,
+building and tests. [RUNTIME.md](../RUNTIME.md) covers runtime preparation and
+explicit deployment with rollback. Retained projects stay in `../modding/mods`
+relative to the toolkit; new projects use ignored `mods/` by default.
 
-Use PowerShell from `<workspace>`, then load the installed tools:
-
-```powershell
-. .\modding\dev-env.ps1
-```
-
-Create source under `modding/mods/<your-mod>`, outside the watched installation.
-Copy the Rust template from
-`modding/bloodborne_pc/third_party/bbmod/templates/rust-mod`, or use the paired
-hooks test mods as a complete example. Adjust its SDK path for the new directory.
-A crate directly under `modding/mods/<your-mod>` uses:
-
-```toml
-[package]
-name = "my-mod"
-version = "0.1.0"
-edition = "2021"
-
-[lib]
-crate-type = ["cdylib"]
-
-[dependencies]
-bbmod = { path = "../../bloodborne_pc/third_party/bbmod/sdk/rust/bbmod" }
-
-[profile.release]
-panic = "unwind"
-```
-
-Implement `bbmod::Mod::load`, register owned callbacks/panels, and export with
-`bbmod::export!(MyMod)`. Give every mod a unique manifest `[mod] id`, name, version,
-ABI and DLL name. Use the minimum ABI your features require; match the new shared
-hooks examples when using that extension. DLL filenames replace Cargo package
-hyphens with underscores. Declare `[load] hot_reload = true` for development.
-
-Build a package containing the manifest and DLL. Build failure must leave the
-installed version untouched. New mods are discovered at host sync points about
-every five seconds; prepare an entire new folder outside `bbmods`, then move it
-into place. Replace an existing DLL atomically on the same volume, retaining a
-rollback copy. Preserve existing manifest settings and user configuration at
-`bbport-windows/config/<mod-id>.toml`; external values override packaged defaults.
-
-Launch `modding/Play Modded Bloodborne.cmd`. F1 opens the overlay. The launcher
-enables development reloads; manual Reload is also available in the Mods panel.
-Use `bbport-windows/bbmods.log` for load failures and event diagnostics.
+Builds must leave installed versions untouched. Every mod needs a unique manifest
+ID, ABI requirement and DLL name. Keep panic unwinding and package its manifest.
+Preserve installed configuration and retain rollback copies during deployment.
 
 ## Lifecycle and threads
 

@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$Msys2Root = 'C:/msys64', [switch]$InstallDependencies)
+param([string]$Msys2Root = 'C:/msys64', [switch]$InstallDependencies, [ValidateRange(1, 64)][int]$Jobs = 4)
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $bash = Join-Path $Msys2Root 'usr/bin/bash.exe'
@@ -12,6 +12,8 @@ if ($InstallDependencies) {
 & python (Join-Path $PSScriptRoot 'prepare_runtime.py')
 if ($LASTEXITCODE -ne 0) { throw 'Runtime source preparation failed.' }
 $env:MSYSTEM = 'CLANG64'
+$env:MSYS2_ROOT = $Msys2Root.Replace('\','/')
+$env:BB_BUILD_JOBS = [string]$Jobs
 $env:BB_TOOLKIT_ROOT = $root.Replace('\','/')
 & $bash -lc 'cd "$(cygpath -u "$BB_TOOLKIT_ROOT")/tools/bloodborne_pc" && git -c core.autocrlf=false submodule update --init --recursive && bash build.sh'
 if ($LASTEXITCODE -ne 0) { throw 'Runtime build failed. Installed game was not modified.' }

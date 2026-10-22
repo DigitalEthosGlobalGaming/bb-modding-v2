@@ -33,12 +33,20 @@ int main(int argc,char**argv){
     }
     fixture*f=calloc(1,sizeof*f);assert(f);modhost_config cfg={0};cfg.mods_dir=mods;cfg.cache_dir=cache;cfg.text=(modhost_text_backend){f,begin,poll,cancel};
     modhost*h=modhost_create(&cfg);assert(h);mh_menu_sink sink={f,publish,drain,NULL,BBM_MENU_CAP_LISTS|BBM_MENU_CAP_LIVE};mh_menu_bind(h,&sink);
-    assert(modhost_scan(h)==(argc==9?8:2));tick(h);assert(count(f)==22);
+    assert(modhost_scan(h)==(argc==9?8:2));tick(h);assert(count(f)==34);
     if(argc==9)assert(f->snapshot.count>128);
     for(size_t i=0;i<h->nmods;i++){assert(h->mods[i].state==MODHOST_ACTIVE);for(size_t j=0;j<h->mods[i].inst->nres;j++){mh_res_kind k=h->mods[i].inst->res[j].kind;assert(k!=MH_RES_PANEL&&k!=MH_RES_UI_CONTRIBUTION);}}
     bbm_id other=find(f,"example.input-counter","count")->id;
     assert(!strcmp(row(f,"dashboard-increment")->node.label,row(f,"settings-increment")->node.label));
     assert(row(f,"dashboard-increment")->id!=row(f,"settings-increment")->id);
+    /* Read-only sample browser: details follow activation; categories keep
+     * independent selection and replace only their own entry rows. */
+    assert(strstr(row(f,"browser-detail")->node.label,"Survey lantern"));
+    click(h,f,"browser-entry-chalk");assert(strstr(row(f,"browser-detail")->node.label,"Marking chalk"));
+    assert(!strncmp(row(f,"browser-entry-chalk")->node.label,"> ",2));
+    click(h,f,"browser-category");assert(count(f)==34-9+2&&strstr(row(f,"browser-category")->node.label,"Notes")&&!find(f,OWNER,"browser-entry-chalk"));
+    click(h,f,"browser-entry-route");assert(strstr(row(f,"browser-detail")->node.label,"Lower route"));
+    click(h,f,"browser-category");assert(count(f)==34&&strstr(row(f,"browser-detail")->node.label,"Marking chalk"));
     click(h,f,"dashboard-increment");click(h,f,"dashboard-increment");click(h,f,"settings-increment");
     assert(!strcmp(row(f,"dashboard-count")->node.label,"Dashboard counter: 2"));assert(!strcmp(row(f,"settings-count")->node.label,"Settings counter: 1"));
     click(h,f,"enabled");click(h,f,"style-2");click(h,f,"level-adjust-3");click(h,f,"level-adjust-2");
@@ -48,24 +56,24 @@ int main(int argc,char**argv){
      * reject a queued old settings action without touching another owner. */
     click(h,f,"label");assert(f->active);int cancelled=f->cancelled;
     mh_menu_item stale=*row(f,"settings-increment");click(h,f,"settings-visible");
-    assert(count(f)==7&&!f->active&&f->cancelled==cancelled+1&&!find(f,OWNER,"settings"));
+    assert(count(f)==19&&!f->active&&f->cancelled==cancelled+1&&!find(f,OWNER,"settings"));
     f->event=(bbm_menu_event){.size=sizeof f->event,.kind=BBM_MENU_ACTIVATED,.node=stale.id,.revision=stale.version};f->pending=1;tick(h);
     assert(find(f,"example.input-counter","count")->id==other);
-    click(h,f,"settings-visible");assert(count(f)==22);accepted(f);
+    click(h,f,"settings-visible");assert(count(f)==34);accepted(f);
     assert(!strcmp(row(f,"settings-count")->node.label,"Settings counter: 1"));
     for(int i=0;i<20;i++){
-        stale=*row(f,"settings-increment");assert(!modhost_reload_now(h,OWNER));tick(h);accepted(f);assert(count(f)==22);
+        stale=*row(f,"settings-increment");assert(!modhost_reload_now(h,OWNER));tick(h);accepted(f);assert(count(f)==34);
         f->event=(bbm_menu_event){.size=sizeof f->event,.kind=BBM_MENU_ACTIVATED,.node=stale.id,.revision=stale.version};f->pending=1;tick(h);
         assert(!strcmp(row(f,"settings-count")->node.label,"Settings counter: 1"));assert(find(f,"example.input-counter","count")->id==other);
     }
-    click(h,f,"settings-visible");for(int i=0;i<20;i++){assert(!modhost_reload_now(h,OWNER));tick(h);assert(count(f)==7&&!row(f,"settings-visible")->node.value);}
+    click(h,f,"settings-visible");for(int i=0;i<20;i++){assert(!modhost_reload_now(h,OWNER));tick(h);assert(count(f)==19&&!row(f,"settings-visible")->node.value);}
     /* Failed partial registration must roll back every newly created row and
      * leave accepted values available for a later successful show. */
     original_register=h->api.menu_register;h->api.menu_register=denied_register;
-    click(h,f,"settings-visible");assert(count(f)==7&&!row(f,"settings-visible")->node.value&&!find(f,OWNER,"level"));
+    click(h,f,"settings-visible");assert(count(f)==19&&!row(f,"settings-visible")->node.value&&!find(f,OWNER,"level"));
     assert(strstr(row(f,"notice")->node.label,"Cannot register settings"));
     h->api.menu_register=original_register;
-    click(h,f,"settings-visible");accepted(f);assert(count(f)==22);
+    click(h,f,"settings-visible");accepted(f);assert(count(f)==34);
     click(h,f,"reset");assert(!strcmp(row(f,"dashboard-count")->node.label,"Dashboard counter: 0")&&!strcmp(row(f,"settings-count")->node.label,"Settings counter: 0"));accepted(f);
     assert(!modhost_unload_now(h,OWNER));tick(h);assert(!count(f)&&find(f,"example.input-counter","count")->id==other);
     modhost_destroy(h);tc_rmtree(root);free(f);

@@ -20,10 +20,10 @@ static void *G factory_invoke(callable *self,void *root,void *params){
 }
 static void *factory_vtable[]={ (void*)clone,(void*)clone,(void*)factory_invoke,(void*)unused,(void*)destroy,(void*)destruct };
 
-/* The stock template exposes six command rows. Larger logical lists use four
+/* The stock Top command list exposes five rows. Larger logical lists use three
  * data rows and up to two host-owned navigation rows, refreshed in the same
  * widget. No additional engine Step is created by changing a page. */
-#define NATIVE_PAGE_ROWS 4u
+#define NATIVE_PAGE_ROWS 3u
 static size_t page_items(mh_menu_item *items,size_t total,size_t *page){
     if(total<=MH_MENU_VISIBLE_ROWS){*page=0;return total;}
     size_t pages=(total+NATIVE_PAGE_ROWS-1)/NATIVE_PAGE_ROWS;
@@ -100,6 +100,11 @@ static void refresh_view(void *widget){
     live_view next=previous;next.revision=revision;next.reset_focus=0;
     if(selected_id&&count>MH_MENU_VISIBLE_ROWS)for(size_t i=0;i<count;i++)if(row_identity(&items[i])==selected_id){next.page=i/NATIVE_PAGE_ROWS;break;}
     count=page_items(items,count,&next.page);next.count=count;
+    /* Keep the old row set visible until the native entrance fade completes.
+     * In particular, a 4 -> 2 -> 4 transition must not hide the trailing two
+     * while their alpha is zero. Retry the same pending revision next frame. */
+    if(previous.count&&previous.count!=count&&
+       !ops.list_ready((char*)widget+0xa70,previous.count)){free(items);return;}
     uint64_t hash=1469598103934665603ull;
     const unsigned char *bytes=(const unsigned char*)items;
     for(size_t i=0;i<count*sizeof *items;i++)hash=(hash^bytes[i])*1099511628211ull;
@@ -121,13 +126,32 @@ static void refresh_view(void *widget){
         if(!append(builder,&empty)){ops.cleanup(builder);free(items);return;}}
     ops.cleanup((char*)widget+0xd90);
     ops.copy((char*)widget+0xd90,builder);ops.cleanup(builder);
-    ops.refresh(widget,(char*)widget+0xd30);
-    memcpy((char*)widget+0xae4,&restore,4);pending=-1;memcpy((char*)widget+0xae8,&pending,4);
+    /* The constructor already bound the movie, providers and transitions.
+     * Rebinding the entire screen here re-registers its animation data on every
+     * page/value change. Reuse the native provider (it references the row vector
+     * inside this widget), and run only the native list count/focus/layout/draw
+     * sequence. Never restore the cursor with a raw write after drawing it. */
+    void *list=(char*)widget+0xa70;
+    trace_list(widget,&previous,"before-update");
+    ops.list_count(list,(int32_t)(count?count:1));
+    ops.list_focus(list,restore);
+    ops.list_layout(list);
+    pending=-1;memcpy((char*)widget+0xae8,&pending,4);
+    ops.list_redraw(list);
     ops.selection(widget);
+    trace_list(widget,&next,"after-update");next.trace_frames=90;
     remember_view(slot,&next);
     free(items);
 }
 static void G frame_detour(void *widget,void *input,float elapsed){
     refresh_view(widget);
     ((void(G*)(void*,void*,float))bridge.originals[4])(widget,input,elapsed);
+    if(bridge.trace&&enter()){
+        for(size_t i=0;i<64;i++)if(bridge.views[i].widget==(uintptr_t)widget&&bridge.views[i].trace_frames){
+            live_view view=bridge.views[i];--bridge.views[i].trace_frames;leave();
+            if(view.trace_frames==90||view.trace_frames==60||view.trace_frames==1)trace_list(widget,&view,"after-frame");
+            return;
+        }
+        leave();
+    }
 }

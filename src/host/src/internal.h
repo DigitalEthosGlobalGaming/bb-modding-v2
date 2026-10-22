@@ -69,6 +69,7 @@ typedef struct mh_manifest {
     int scope;         /* modhost_scope */
     uint32_t protocol; /* default 1 */
     char runtime[32];  /* "native" (default) or "dotnet" */
+    int manage;        /* [mod] manage = true: may list/control mods and settings (ABI 1.11) */
 } mh_manifest;
 
 int mh_manifest_parse(const char *text, mh_manifest *out, char *err, size_t cap);
@@ -91,7 +92,8 @@ typedef enum mh_res_kind {
     MH_RES_CHANNEL,
     MH_RES_PLAYER_MODIFIER,
     MH_RES_GROUP, /* several patches applied as one (XML) */
-    MH_RES_TEXT
+    MH_RES_TEXT,
+    MH_RES_UI_LAYER
 } mh_res_kind;
 
 typedef struct mh_res {
@@ -200,6 +202,7 @@ struct mh_entry {
     double frame_ms;
     uint64_t net_out;
     uint64_t asset_stamp; /* newest mtime under dvdroot_ps4 */
+    struct mh_settings *settings; /* declarations and values (settings.c); survives reload */
 };
 
 typedef enum { MH_REQ_LOAD = 1, MH_REQ_UNLOAD, MH_REQ_RELOAD } mh_req_kind;
@@ -227,7 +230,7 @@ typedef struct mh_peer {
 /* Events queued from other threads, delivered at the sync point. */
 typedef enum {
     MH_IN_NET = 1, MH_IN_SESSION_BEGIN, MH_IN_SESSION_END, MH_IN_PEER_JOIN, MH_IN_PEER_LEAVE,
-    MH_IN_EVENT
+    MH_IN_EVENT, MH_IN_UI_ACTION, MH_IN_SETTING
 } mh_in_kind;
 typedef struct mh_in {
     mh_in_kind kind;
@@ -239,6 +242,9 @@ typedef struct mh_in {
 
 struct modhost {
     struct mh_menu_service *menu;
+    struct mh_layers *layers;
+    volatile int32_t ui_capture; /* a visible interactive layer owns input (lock-free read) */
+    volatile int32_t ui_count;   /* published layers exist (lock-free read) */
     modhost_config cfg;
     plat_mutex *run_lock; /* recursive: frame, panels, load/unload */
     plat_mutex *vfs_lock;
@@ -328,6 +334,18 @@ int mh_res_release_one(struct bbm_mod *m, bbm_id id);
 void mh_fill_api(bbm_host *api);
 mh_entry *mh_find(modhost *h, const char *id);
 void mh_dispatch_event(modhost *h, const bbm_event *ev);
+void mh_dispatch_event_to(struct bbm_mod *m, const bbm_event *ev);
+void mh_enqueue(modhost *h, mh_in_kind kind, uint64_t peer, uint64_t a, uint64_t b, int flag, const void *data, size_t len);
+
+/* ui_layers.c, settings.c */
+void mh_ui_layers_fill(bbm_host *api);
+void mh_ui_layer_release(struct bbm_mod *m, void *p);
+void mh_ui_layers_free(modhost *h);
+void mh_ui_layers_tick(modhost *h);
+void mh_ui_action_deliver(modhost *h, uint32_t action);
+void mh_settings_fill(bbm_host *api);
+void mh_settings_undeclare(mh_entry *e);
+void mh_settings_free(mh_entry *e);
 
 /* code.c (patches and hooks) */
 int mh_write_code(modhost *h, void *addr, const void *src, size_t n);

@@ -5,7 +5,7 @@
 use core::ffi::{c_char, c_void};
 
 pub const BBM_ABI_MAJOR: u16 = 1;
-pub const BBM_ABI_MINOR: u16 = 10;
+pub const BBM_ABI_MINOR: u16 = 11;
 
 pub type bbm_status = i32;
 pub const BBM_OK: i32 = 0;
@@ -208,7 +208,79 @@ pub struct bbm_host {
     pub menu_state: unsafe extern "C" fn(H,*mut bbm_menu_state)->S,
     pub text_begin: unsafe extern "C" fn(H,*const bbm_text_request,*mut bbm_id)->S,
     pub text_poll: unsafe extern "C" fn(H,bbm_id,*mut bbm_text_result)->S,
+    // ---- ABI 1.11 ----
+    pub ui_layer_set: unsafe extern "C" fn(H,*mut bbm_id,*const bbm_ui_layer,*const c_void,usize)->S,
+    pub setting_declare: unsafe extern "C" fn(H,*const bbm_setting_def)->S,
+    pub setting_get: unsafe extern "C" fn(H,Cs,*mut bbm_setting_value)->S,
+    pub setting_set: unsafe extern "C" fn(H,Cs,*const bbm_setting_value)->S,
+    pub mods_info: unsafe extern "C" fn(H,u32,*mut bbm_mod_info)->S,
+    pub mod_request: unsafe extern "C" fn(H,Cs,u32)->S,
+    pub settings_info: unsafe extern "C" fn(H,Cs,u32,*mut bbm_setting_def,*mut bbm_setting_value)->S,
+    pub settings_write: unsafe extern "C" fn(H,Cs,Cs,*const bbm_setting_value)->S,
 }
+
+pub const BBM_EV_UI_ACTION: u32 = 1 << 21;
+pub const BBM_EV_SETTING_CHANGED: u32 = 1 << 22;
+pub const BBM_UI_HUD: u32 = 1;
+pub const BBM_UI_SCREEN: u32 = 2;
+pub const BBM_UI_MODAL: u32 = 3;
+pub const BBM_UI_VISIBLE: u32 = 1;
+pub const BBM_UI_ACT_UP: u32 = 1;
+pub const BBM_UI_ACT_DOWN: u32 = 2;
+pub const BBM_UI_ACT_LEFT: u32 = 3;
+pub const BBM_UI_ACT_RIGHT: u32 = 4;
+pub const BBM_UI_ACT_CONFIRM: u32 = 5;
+pub const BBM_UI_ACT_BACK: u32 = 6;
+pub const BBM_UI_ACT_PREV_TAB: u32 = 7;
+pub const BBM_UI_ACT_NEXT_TAB: u32 = 8;
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct bbm_ui_layer { pub size: u32, pub kind: u32, pub flags: u32, pub order: i32, pub x: f32, pub y: f32, pub w: f32, pub h: f32 }
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct bbm_ui_action { pub size: u32, pub action: u32, pub layer: u64 }
+
+pub const BBM_SET_BOOL: u32 = 1;
+pub const BBM_SET_INT: u32 = 2;
+pub const BBM_SET_FLOAT: u32 = 3;
+pub const BBM_SET_ENUM: u32 = 4;
+pub const BBM_SET_TEXT: u32 = 5;
+pub const BBM_SET_KEYBIND: u32 = 6;
+pub const BBM_SET_RESTART: u32 = 1;
+pub const BBM_SET_INACTIVE: u32 = 2;
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct bbm_setting_def {
+    pub size: u32, pub type_: u32, pub flags: u32, pub order: i32,
+    pub key: [c_char; 48], pub label: [c_char; 80], pub help: [c_char; 160], pub group: [c_char; 48],
+    pub choices: [c_char; 256], pub depends_key: [c_char; 48], pub depends_value: i32, pub reserved: i32,
+    pub min: f64, pub max: f64, pub step: f64, pub def_i: i64, pub def_f: f64, pub def_s: [c_char; 96],
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct bbm_setting_value { pub size: u32, pub type_: u32, pub i: i64, pub f: f64, pub s: [c_char; 96] }
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct bbm_setting_event { pub size: u32, pub reserved: u32, pub key: [c_char; 48], pub value: bbm_setting_value }
+impl Default for bbm_setting_def { fn default() -> Self { unsafe { core::mem::zeroed() } } }
+impl Default for bbm_setting_value { fn default() -> Self { unsafe { core::mem::zeroed() } } }
+impl Default for bbm_setting_event { fn default() -> Self { unsafe { core::mem::zeroed() } } }
+
+pub const BBM_MODOP_LOAD: u32 = 1;
+pub const BBM_MODOP_UNLOAD: u32 = 2;
+pub const BBM_MODOP_RELOAD: u32 = 3;
+pub const BBM_MODF_HAS_CODE: u32 = 1;
+pub const BBM_MODF_HOT_RELOAD: u32 = 2;
+pub const BBM_MODF_SELF: u32 = 4;
+pub const BBM_MODF_SETTINGS: u32 = 8;
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct bbm_mod_info {
+    pub size: u32, pub state: u32, pub flags: u32, pub scope: u32, pub version: bbm_version,
+    pub id: [c_char; 128], pub name: [c_char; 128], pub author: [c_char; 96], pub description: [c_char; 192],
+    pub last_error: [c_char; 192], pub after: [c_char; 192], pub conflicts: [c_char; 192],
+}
+impl Default for bbm_mod_info { fn default() -> Self { unsafe { core::mem::zeroed() } } }
 
 #[repr(C)]
 #[derive(Clone,Copy)]
@@ -345,6 +417,9 @@ impl bbm_host {
     pub fn has_characters(&self)->bool {self.size as usize>=field_end!(characters_page)}
     pub fn has_native_menus(&self)->bool {self.size as usize>=field_end!(menu_state)}
     pub fn has_text_entry(&self)->bool {self.size as usize>=field_end!(text_poll)}
+    pub fn has_ui_layers(&self)->bool {self.size as usize>=field_end!(ui_layer_set)}
+    pub fn has_settings(&self)->bool {self.size as usize>=field_end!(setting_set)}
+    pub fn has_manage(&self)->bool {self.size as usize>=field_end!(settings_write)}
     pub fn has_item_actions(&self)->bool {self.size as usize>=field_end!(item_give_status)}
     pub fn has_inventory(&self) -> bool { self.size as usize >= field_end!(inventory_page) }
     pub fn has_equipment(&self) -> bool { self.size as usize >= field_end!(equipment_snapshot) }

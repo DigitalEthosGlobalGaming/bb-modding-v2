@@ -30,6 +30,19 @@ target_link_libraries(test_text_entry PRIVATE bbmod_host)
 target_include_directories(test_text_entry PRIVATE ${PROJECT_SOURCE_DIR}/src/host/src)
 add_test(NAME text_entry COMMAND test_text_entry)
 
+add_executable(test_ui_layers test_ui_layers.c)
+target_link_libraries(test_ui_layers PRIVATE bbmod_host)
+target_include_directories(test_ui_layers PRIVATE ${PROJECT_SOURCE_DIR}/src/host/src)
+add_test(NAME ui_layers COMMAND test_ui_layers)
+
+# Real Mod Menu + Difficulty DLLs (built by their projects): -DBBMOD_MENU_DLL=... -DBBMOD_DIFFICULTY_DLL=...
+if(BBMOD_MENU_DLL AND BBMOD_DIFFICULTY_DLL)
+    add_executable(test_menu_mod test_menu_mod.c)
+    target_link_libraries(test_menu_mod PRIVATE bbmod_host)
+    target_include_directories(test_menu_mod PRIVATE ${PROJECT_SOURCE_DIR}/src/host/src)
+    add_test(NAME menu_mod COMMAND test_menu_mod ${BBMOD_MENU_DLL} ${BBMOD_DIFFICULTY_DLL})
+endif()
+
 if(NOT WIN32)
     add_executable(test_rust test_rust.c)
     target_link_libraries(test_rust PRIVATE bbmod_host)

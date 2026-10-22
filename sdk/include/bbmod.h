@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #define BBM_ABI_MAJOR 1
-#define BBM_ABI_MINOR 10
+#define BBM_ABI_MINOR 11
 
 #if defined(_WIN32)
 #define BBM_EXPORT __declspec(dllexport)
@@ -325,6 +325,84 @@ typedef struct bbm_menu_event {
     char owner[128], key[64], screen[192];
 } bbm_menu_event;
 
+/* ---- ABI 1.11: UI layers, mod settings, mod management ------------------
+ *
+ * UI layers. A mod publishes a retained draw list for a layer; the host owns
+ * the clock (60 Hz), fade, stage-to-screen scaling, arbitration of the single
+ * foreground interactive layer, and input capture. Coordinates are on the
+ * 1920x1080 stage. The stream copied by ui_layer_set is:
+ *   header: "BBUI" u8 version(=1) u8[3] reserved u32 command_count
+ *   command: u8 op, payload (little endian; f32 x,y,w,h unless noted)
+ *     1 FILL   : rect, u32 rgba
+ *     2 STROKE : rect, f32 width, u32 rgba
+ *     3 TEXT   : rect, f32 size, u32 rgba, u8 align(0 start,1 center,2 end),
+ *                u8 bold, u16 len, utf8[len]
+ *     4 IMAGE  : rect, u32 tint rgba, u8 len, name[len]
+ * Limits: 256 KiB, 4096 commands, 64 layers per host, 8 per mod. A malformed
+ * stream is rejected whole. The host never calls back into a mod to draw.
+ * HUD layers never take input. SCREEN and MODAL layers that are visible
+ * capture the pad/keyboard: the game reads neutral input and the topmost such
+ * layer's owner receives BBM_EV_UI_ACTION events (subscribe first). */
+#define BBM_EV_UI_ACTION (1u << 21)       /* data: bbm_ui_action; owner of the foreground layer only */
+#define BBM_EV_SETTING_CHANGED (1u << 22) /* data: bbm_setting_event; owner only, at the sync point */
+enum { BBM_UI_HUD = 1, BBM_UI_SCREEN = 2, BBM_UI_MODAL = 3 };
+enum { BBM_UI_VISIBLE = 1u };
+enum { BBM_UI_ACT_UP = 1, BBM_UI_ACT_DOWN, BBM_UI_ACT_LEFT, BBM_UI_ACT_RIGHT, BBM_UI_ACT_CONFIRM,
+       BBM_UI_ACT_BACK, BBM_UI_ACT_PREV_TAB, BBM_UI_ACT_NEXT_TAB };
+typedef struct bbm_ui_layer {
+    uint32_t size, kind, flags;
+    int32_t order;       /* higher draws later and wins the foreground among equals */
+    float x, y, w, h;    /* MODAL: bounds; HUD/SCREEN: ignored (the SDK lays out) */
+} bbm_ui_layer;
+typedef struct bbm_ui_action {
+    uint32_t size, action;
+    uint64_t layer;
+} bbm_ui_action;
+
+/* Mod settings. The host keeps declarations and values, persists values per
+ * mod (config/<mod-id>.settings.toml), validates every write against the
+ * declaration and tells the owner with BBM_EV_SETTING_CHANGED. Declarations are
+ * released with the mod; values survive reload and unload. */
+enum { BBM_SET_BOOL = 1, BBM_SET_INT, BBM_SET_FLOAT, BBM_SET_ENUM, BBM_SET_TEXT, BBM_SET_KEYBIND };
+enum { BBM_SET_RESTART = 1u,   /* applies only after a restart; the menu says so */
+       BBM_SET_INACTIVE = 2u   /* output only: the owner is not loaded */ };
+typedef struct bbm_setting_def {
+    uint32_t size, type, flags;
+    int32_t order;
+    char key[48], label[80], help[160], group[48];
+    char choices[256];       /* ENUM: "First|Second|Third" */
+    char depends_key[48];    /* shown only while that setting's integer value equals depends_value */
+    int32_t depends_value;
+    int32_t reserved;
+    double min, max, step;   /* INT/FLOAT bounds; TEXT: max = max bytes (1..95) */
+    int64_t def_i;           /* BOOL (0/1), INT, ENUM index, KEYBIND scancode */
+    double def_f;
+    char def_s[96];
+} bbm_setting_def;
+typedef struct bbm_setting_value {
+    uint32_t size, type;
+    int64_t i;               /* BOOL, INT, ENUM, KEYBIND */
+    double f;                /* FLOAT */
+    char s[96];              /* TEXT */
+} bbm_setting_value;
+typedef struct bbm_setting_event {
+    uint32_t size, reserved;
+    char key[48];
+    bbm_setting_value value;
+} bbm_setting_event;
+
+/* Mod management. Only a mod whose manifest has `[mod] manage = true` may call
+ * mods_info/mod_request/settings_*of (BBM_ERR_STATE otherwise). It cannot
+ * unload itself. Requests run at the next sync point. */
+enum { BBM_MODOP_LOAD = 1, BBM_MODOP_UNLOAD = 2, BBM_MODOP_RELOAD = 3 };
+enum { BBM_MODF_HAS_CODE = 1u, BBM_MODF_HOT_RELOAD = 2u, BBM_MODF_SELF = 4u, BBM_MODF_SETTINGS = 8u };
+typedef struct bbm_mod_info {
+    uint32_t size, state;    /* state: 0 discovered, 1 active, 2 unloaded, 3 faulted, 4 disabled */
+    uint32_t flags, scope;
+    bbm_version version;
+    char id[128], name[128], author[96], description[192], last_error[192], after[192], conflicts[192];
+} bbm_mod_info;
+
 typedef struct bbm_host {
     uint32_t size; /* sizeof(bbm_host) as built by the host */
     uint16_t abi_major, abi_minor;
@@ -481,6 +559,17 @@ typedef struct bbm_host {
     bbm_status (*menu_state)(bbm_handle, bbm_menu_state*);
     bbm_status (*text_begin)(bbm_handle, const bbm_text_request*, bbm_id*);
     bbm_status (*text_poll)(bbm_handle, bbm_id, bbm_text_result*);
+    /* ABI 1.11 */
+    /* Create (*layer == 0) or replace a layer's draw list. `cmds` is copied. */
+    bbm_status (*ui_layer_set)(bbm_handle, bbm_id *layer, const bbm_ui_layer*, const void *cmds, size_t n);
+    bbm_status (*setting_declare)(bbm_handle, const bbm_setting_def*);
+    bbm_status (*setting_get)(bbm_handle, const char *key, bbm_setting_value*);
+    bbm_status (*setting_set)(bbm_handle, const char *key, const bbm_setting_value*);
+    /* manage capability: */
+    bbm_status (*mods_info)(bbm_handle, uint32_t index, bbm_mod_info*);
+    bbm_status (*mod_request)(bbm_handle, const char *mod_id, uint32_t op);
+    bbm_status (*settings_info)(bbm_handle, const char *mod_id, uint32_t index, bbm_setting_def*, bbm_setting_value*);
+    bbm_status (*settings_write)(bbm_handle, const char *mod_id, const char *key, const bbm_setting_value*);
 } bbm_host;
 
 /* ---- Mod function table (filled by the mod in bbmod_entry) ------------- */

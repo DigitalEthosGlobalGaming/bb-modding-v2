@@ -124,6 +124,7 @@ static void release_res(struct bbm_mod *m, mh_res *r) {
     case MH_RES_UI_CONTRIBUTION: free(r->p); break;
     case MH_RES_NATIVE_MENU: mh_menu_release(m,r->p); break;
     case MH_RES_TEXT: mh_text_release(m,r->p); break;
+    case MH_RES_UI_LAYER: mh_ui_layer_release(m, r->p); break;
     case MH_RES_FILE: {
         mh_file *f = r->p;
         mh_vfs_remove_owner(h, m, f->game_path);
@@ -168,6 +169,12 @@ int mh_res_release_one(struct bbm_mod *m, bbm_id id) {
 }
 
 /* ---- Event dispatch ----------------------------------------------------- */
+
+void mh_dispatch_event_to(struct bbm_mod *m, const bbm_event *ev) {
+    if (!m || m->bypassed || m->faulted || !(m->events & ev->type) || !m->api.on_event) return;
+    mh_call c = {.kind = MH_CALL_EVENT, .f = (void (*)(void))m->api.on_event, .a = m->ctx, .b = ev};
+    mh_call_mod(m, &c);
+}
 
 void mh_dispatch_event(modhost *h, const bbm_event *ev) {
     for (size_t i = 0; i < h->nmods; i++) {
@@ -472,6 +479,8 @@ void mh_fill_api(bbm_host *a) {
     mh_ui_tables_fill(a);
     mh_menu_fill(a);
     mh_text_fill(a);
+    mh_ui_layers_fill(a);
+    mh_settings_fill(a);
     a->log = api_log;
     a->last_error = api_last_error;
     a->alloc = api_alloc;

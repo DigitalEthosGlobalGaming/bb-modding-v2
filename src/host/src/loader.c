@@ -281,6 +281,7 @@ static int load_instance(modhost *h, mh_entry *e, const bbm_blob *state, bbm_ver
     if (crashed || rc != BBM_OK) {
         if (!crashed) mh_log(h, e->m.id, BBM_LOG_ERROR, "on_load failed (rc=%d): %s", rc, m->last_error);
         mh_res_release_all(m);
+    mh_settings_undeclare(m->entry);
         if (!m->faulted && m->api.destroy) {
             mh_call d = {.kind = MH_CALL_VOID1, .f = (void (*)(void))m->api.destroy, .a = m->ctx};
             mh_call_mod(m, &d);
@@ -353,6 +354,7 @@ int mh_unload(modhost *h, mh_entry *e, int keep_state, bbm_blob *state_out) {
         mh_call_mod(m, &c);
     }
     mh_res_release_all(m);
+    mh_settings_undeclare(m->entry);
     if (m->api.destroy && !m->faulted) {
         mh_call c = {.kind = MH_CALL_VOID1, .f = (void (*)(void))m->api.destroy, .a = m->ctx};
         mh_call_mod(m, &c);

@@ -2,7 +2,7 @@
 
 # Human-readable item catalog
 
-The portable mapping is [items.json](../bloodborne_pc/third_party/bbmod/sdk/rust/bbmod/data/items.json).
+The portable mapping is [items.json](../../sdk/rust/bbmod/local-data/items.json).
 It maps snake_case keys to names, categories, parameter IDs and category-encoded
 item IDs. It was generated read-only from this installation's CUSA03173 1.09
 English name archives and equipment parameter tables; source hashes are included.
@@ -65,14 +65,12 @@ safe. This catalog provides identification, not item-spawning functionality.
 
 ## Regeneration and checks
 
-From `<workspace>`:
+From the toolkit root, with `$GameAssets` set to the selected `dvdroot_ps4`:
 
 ```powershell
-C:/Python311/python.exe modding/generate-item-catalog.py
-C:/Python311/python.exe modding/generate-item-catalog.py --check
-C:/Python311/python.exe modding/tests/test_item_catalog.py
-. ./modding/dev-env.ps1
-cargo test -p bbmod --manifest-path modding/bloodborne_pc/third_party/bbmod/Cargo.toml
+python src/scripts/generate_items.py --game $GameAssets
+python src/scripts/generate_items.py --game $GameAssets --check
+cargo test -p bbmod --features local-catalogs
 ```
 
 The generator writes JSON and its Rust mirror together. Do not edit either

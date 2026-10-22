@@ -1,3 +1,8 @@
+> Curated labels are optional private inputs, preserved for this installation under
+> `.local/reference-inputs/catalogs`. Check `definition()` for `None` on fresh setups;
+> examples and counts below also record historical research.
+> Regenerate action/NPC tables with `src/scripts/generate_catalogs.py --game GAME_ASSETS`.
+
 > Historical workspace notes. Paths and validation describe the original workspace; use ../SETUP.md for this toolkit. Inspector and bulk recovered tables are excluded.
 
 # Teams, scripts and enemy names

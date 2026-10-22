@@ -190,6 +190,28 @@ size_t modhost_mod_count(const modhost *h);
 int modhost_mod_view_at(const modhost *h, size_t i, modhost_mod_view *out);
 void modhost_draw_panels(modhost *h); /* overlay thread; takes the lock itself (recursive) */
 
+/* UI layers (ABI 1.11). The overlay thread, holding modhost_try_lock, copies views back to
+ * front (HUD, then SCREEN, then MODAL). `cmds` stays valid until the lock is released.
+ * Alpha is the 60 Hz fade; hidden layers are omitted. _at takes a millisecond clock for tests. */
+typedef struct modhost_ui_layer_view {
+    uint64_t id;
+    uint32_t kind;
+    float alpha;
+    float x, y, w, h;
+    int foreground;
+    const uint8_t *cmds;
+    size_t n;
+    const char *owner;
+} modhost_ui_layer_view;
+size_t modhost_ui_layers(modhost *h, modhost_ui_layer_view *out, size_t cap);
+size_t modhost_ui_layers_at(modhost *h, uint64_t now_ms, modhost_ui_layer_view *out, size_t cap);
+/* Lock-free, any thread: a visible SCREEN/MODAL layer owns the pad and keyboard. */
+int modhost_ui_captures(modhost *h);
+/* Lock-free, any thread: at least one layer is published (the overlay has something to draw). */
+int modhost_ui_active(modhost *h);
+/* Any thread: queue one BBM_UI_ACT_* for the foreground layer (dropped when none). */
+void modhost_ui_input(modhost *h, uint32_t action);
+
 /* Faults (call from the exception handler) */
 const char *modhost_fault_owner(const modhost *h, uintptr_t ip);
 int modhost_on_fault(modhost *h, uintptr_t ip); /* 1 = ip was in a mod; mod bypassed */

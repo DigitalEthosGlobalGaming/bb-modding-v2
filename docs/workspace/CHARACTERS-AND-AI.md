@@ -131,7 +131,7 @@ those fields affect broader actor scheduling/collision and reduced updates.
 
 ## Validation and example
 
-`../mods/character-observer` contributes **Enemy and Boss Observer** to the F1
+`../modding/mods/character-observer` contributes **Enemy and Boss Observer** to the F1
 shared dashboard. It is read-only and uses ABI 1.7's sortable, scrolling table.
 Search, NPC/boss/injured filters, and 25/50/100/All pagination replace the former
 40-row cutoff. The default sort places recent HP changes first; every column

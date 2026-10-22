@@ -1,5 +1,18 @@
+diff --git a/build.sh b/build.sh
+index 70c0c04..1ca0ad7 100644
+--- a/build.sh
++++ b/build.sh
+@@ -23,7 +23,7 @@ MINGW*|MSYS*)
+     cmake -S gpu -B out/gpu -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBB_PGO=off \
+         -DBB_LTO="${BB_LTO:-OFF}" -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ >/dev/null
+     echo "GPU library and loader: LTO ${BB_LTO:-OFF}"
+-    if ! ninja -C out/gpu bb-probe bb-gpu-capabilities bb-play > out/gpu-build.log 2>&1; then
++    if ! ninja -j "${BB_BUILD_JOBS:-4}" -C out/gpu bb-probe bb-gpu-capabilities bb-play > out/gpu-build.log 2>&1; then
+         grep -v '^\[' out/gpu-build.log | tail -40 >&2
+         echo 'Build failed (full log: out/gpu-build.log)' >&2; exit 1
+     fi
 diff --git a/gpu/CMakeLists.txt b/gpu/CMakeLists.txt
-index 227b84c..827e834 100644
+index 529ef05..54406f0 100644
 --- a/gpu/CMakeLists.txt
 +++ b/gpu/CMakeLists.txt
 @@ -252,6 +252,31 @@ else()
@@ -44,26 +57,101 @@ index 227b84c..827e834 100644
      target_link_libraries(bb-probe PRIVATE bbgpu atrac9 onecore bcrypt ws2_32 -pthread)
      # The PS4 range (64 GiB - 1 TiB) must stay free: no high-entropy ASLR for heaps and stacks.
      # The guest main thread runs on the process stack: 16 MiB, committed (no stack probes).
+@@ -341,3 +369,16 @@ add_executable(fsr4-bench EXCLUDE_FROM_ALL tools/fsr4_bench.cpp
+     shadps4/video_core/renderer_vulkan/fsr411/fsr411.cpp)
+ target_include_directories(fsr4-bench PRIVATE shadps4/video_core/renderer_vulkan/fsr411)
+ target_link_libraries(fsr4-bench PRIVATE ffx-vulkan::fsr4-v07-vulkan ffx-vulkan::fsr4-v07-assets Vulkan::Vulkan)
++
++# Shared game/mod text lease and Orbis IME tests use a fake window backend.
++enable_testing()
++add_executable(text-input-test EXCLUDE_FROM_ALL ../tests/test_text_input.c ../src/runtime_text_input.c)
++target_include_directories(text-input-test PRIVATE .. ../src)
++target_compile_options(text-input-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
++target_link_libraries(text-input-test PRIVATE -pthread)
++add_test(NAME runtime-text-lease COMMAND text-input-test)
++add_executable(ime-text-test EXCLUDE_FROM_ALL ../tests/test_ime_text.c)
++target_include_directories(ime-text-test PRIVATE .. ../src)
++target_compile_options(ime-text-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
++target_link_libraries(ime-text-test PRIVATE -pthread)
++add_test(NAME runtime-ime-text COMMAND ime-text-test)
+diff --git a/gpu/bbgpu.h b/gpu/bbgpu.h
+index 02b422e..914caff 100644
+--- a/gpu/bbgpu.h
++++ b/gpu/bbgpu.h
+@@ -33,6 +33,8 @@ void bbgpu_dump_guest_writes(void *ucontext);
+ /* Keyboard text entry through the game window (IME dialog). begin returns 0 when
+  * no window exists; poll returns 0 typing, 1 confirmed, 2 cancelled (UTF-8 text). */
+ int bbgpu_text_input_begin(const char *initial_utf8, const char *prompt_utf8);
++int bbgpu_text_input_begin_limited(const char*,const char*,uint32_t max_bytes);
++void bbgpu_text_input_cancel(void);
+ int bbgpu_text_input_poll(char *out_utf8, uint64_t size);
+ /* 1 while the in-game settings menu is open: the game's pad input is held neutral. */
+ int bbgpu_overlay_captures_input(void);
+diff --git a/gpu/shadps4/video_core/renderer_vulkan/vk_presenter.cpp b/gpu/shadps4/video_core/renderer_vulkan/vk_presenter.cpp
+index e5e14b1..6340d3d 100644
+--- a/gpu/shadps4/video_core/renderer_vulkan/vk_presenter.cpp
++++ b/gpu/shadps4/video_core/renderer_vulkan/vk_presenter.cpp
+@@ -1037,6 +1037,7 @@ bool Presenter::PresentImage(Frame* frame, vk::Image image, bool last) {
+                          MakeImageBlitFit(frame->width, frame->height, extent.width, extent.height),
+                          vk::Filter::eLinear);
+         // bbport: the settings menu / FPS counter over the frame, at display resolution.
++        BbOverlay::SetFrameSize(frame->width, frame->height);
+         BbOverlay::NotePresent();
+         const bool overlay = BbOverlay::Visible();
+         const std::array post_barriers{
+diff --git a/gpu/shim/bbgpu.cpp b/gpu/shim/bbgpu.cpp
+index 3a73ecf..896dc3e 100644
+--- a/gpu/shim/bbgpu.cpp
++++ b/gpu/shim/bbgpu.cpp
+@@ -357,12 +357,22 @@ extern "C" int bbgpu_text_input_begin(const char* initial, const char* prompt) {
+     return 1;
+ }
+ 
++extern "C" int bbgpu_text_input_begin_limited(const char* initial, const char* prompt, uint32_t max_bytes) {
++    if (!g_window) return 0;
++    g_window->BeginTextInput(initial ? initial : "", prompt ? prompt : "Text", max_bytes);
++    return 1;
++}
++extern "C" void bbgpu_text_input_cancel(void) {
++    if (g_window) g_window->CancelTextInput();
++}
++
+ extern "C" int bbgpu_text_input_poll(char* out, uint64_t size) {
+     if (!g_window) return 2;
+     std::string text;
+     const int state = g_window->PollTextInput(text);
+-    if (size) {
+-        const size_t n = std::min<size_t>(text.size(), size - 1);
++    if (size && out) {
++        size_t n = std::min<size_t>(text.size(), size - 1);
++        while (n < text.size() && n && (static_cast<unsigned char>(text[n]) & 0xC0) == 0x80) --n;
+         std::memcpy(out, text.data(), n);
+         out[n] = 0;
+     }
 diff --git a/gpu/shim/bbport_modui.cpp b/gpu/shim/bbport_modui.cpp
 new file mode 100644
-index 0000000..561c53a
+index 0000000..657a051
 --- /dev/null
 +++ b/gpu/shim/bbport_modui.cpp
-@@ -0,0 +1,245 @@
+@@ -0,0 +1,455 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +// bbport: native code mods in the overlay (bbmod, src/runtime_modhost.c). While the settings
 +// menu is open: a "Mods" window (state, errors, load/unload/reload) and every panel the mods
 +// register. Mod notifications show as toasts at any time. Drawn on the present thread inside
 +// BbOverlay::Render (imgui_mutex held); the mod host is only try-locked here, so a hot reload
-+// running on the game thread costs one overlay frame, never a stall.
++// running on the game thread reuses the previous overlay frame, never a stall.
 +
 +#include "bbport_modui.h"
 +
++#include <algorithm>
++#include <atomic>
 +#include <chrono>
 +#include <cstdio>
++#include <cstring>
 +#include <deque>
 +#include <mutex>
 +#include <string>
++#include <vector>
 +
 +#include "imgui.h"
 +#include "modhost.h"
@@ -119,7 +207,36 @@ index 0000000..561c53a
 +}
 +void Separator(void*) { ImGui::Separator(); }
 +void SameLine(void*) { ImGui::SameLine(); }
++void PushScope(void*, const char* owner, const char* key) {
++    ImGui::PushID(owner);
++    ImGui::PushID(key);
++}
++void PopScope(void*) { ImGui::PopID(); ImGui::PopID(); }
 +void* Context(void*) { return ImGui::GetCurrentContext(); }
++
++int TableBegin(void*,const char* id,const char*const* headers,uint32_t count,float height,int32_t* sort,int32_t* descending) {
++    const ImGuiTableFlags flags=ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
++        ImGuiTableFlags_Resizable | ImGuiTableFlags_Sortable | ImGuiTableFlags_ScrollX |
++        ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit;
++    if(!ImGui::BeginTable(id,static_cast<int>(count),flags,ImVec2(0,height),count*110.0f)) return 0;
++    for(uint32_t i=0;i<count;i++) {
++        ImGuiTableColumnFlags column=ImGuiTableColumnFlags_None;
++        if(static_cast<int32_t>(i)==*sort) column|=ImGuiTableColumnFlags_DefaultSort;
++        if(*descending) column|=ImGuiTableColumnFlags_PreferSortDescending;
++        ImGui::TableSetupColumn(headers[i],column,i==0?180.0f:100.0f);
++    }
++    ImGui::TableSetupScrollFreeze(1,1);
++    ImGui::TableHeadersRow();
++    if(auto* specs=ImGui::TableGetSortSpecs();specs && specs->SpecsCount>0) {
++        *sort=specs->Specs[0].ColumnIndex;
++        *descending=specs->Specs[0].SortDirection==ImGuiSortDirection_Descending;
++        specs->SpecsDirty=false;
++    }
++    return 1;
++}
++void TableRow(void*) { ImGui::TableNextRow(); }
++void TableColumn(void*) { ImGui::TableNextColumn(); }
++void TableEnd(void*) { ImGui::EndTable(); }
 +
 +// Any thread (game thread, a crash report): queued, drawn by the present thread.
 +void Notify(void*, const char* mod_id, const char* msg) {
@@ -247,6 +364,146 @@ index 0000000..561c53a
 +    ImGui::End();
 +}
 +
++// ---- Retained mod layers (ABI 1.11) --------------------------------------------------------
++// The host owns the fade, arbitration and input capture. Here we copy each frame's views under
++// a try-lock (so a reload on the game thread reuses the previous frame instead of blinking) and
++// draw the validated 'BBUI' streams with the ImGui draw list, mapped from the 1920x1080 stage
++// into the same aspect-fit rectangle the presenter uses for the game frame.
++
++struct CachedLayer {
++    unsigned kind = 0;
++    float alpha = 1.0f;
++    std::vector<uint8_t> cmds;
++};
++std::vector<CachedLayer> layer_cache; // present thread only
++std::atomic<unsigned> frame_w{1920}, frame_h{1080};
++
++void RefreshLayers(modhost* h) {
++    if (!modhost_ui_active(h)) {
++        layer_cache.clear();
++        return;
++    }
++    if (!modhost_try_lock(h)) return; // game thread is reloading: keep the last good frame
++    modhost_ui_layer_view views[64];
++    const size_t n = modhost_ui_layers(h, views, 64);
++    layer_cache.resize(n);
++    for (size_t i = 0; i < n; ++i) {
++        layer_cache[i].kind = views[i].kind;
++        layer_cache[i].alpha = views[i].alpha;
++        layer_cache[i].cmds.assign(views[i].cmds, views[i].cmds + views[i].n);
++    }
++    modhost_unlock(h);
++}
++
++struct Reader {
++    const uint8_t* p;
++    size_t n, at = 12;
++    bool ok = true;
++    float f32() {
++        float v = 0;
++        if (at + 4 > n) { ok = false; return 0; }
++        std::memcpy(&v, p + at, 4);
++        at += 4;
++        return v;
++    }
++    uint32_t u32() {
++        uint32_t v = 0;
++        if (at + 4 > n) { ok = false; return 0; }
++        std::memcpy(&v, p + at, 4);
++        at += 4;
++        return v;
++    }
++    uint8_t u8() {
++        if (at + 1 > n) { ok = false; return 0; }
++        return p[at++];
++    }
++    const char* bytes(size_t len) {
++        if (at + len > n) { ok = false; return nullptr; }
++        const char* s = reinterpret_cast<const char*>(p + at);
++        at += len;
++        return s;
++    }
++};
++
++ImU32 Rgba(uint32_t c, float alpha) {
++    const unsigned a = static_cast<unsigned>(float(c & 0xff) * std::clamp(alpha, 0.0f, 1.0f) + 0.5f);
++    return IM_COL32((c >> 24) & 0xff, (c >> 16) & 0xff, (c >> 8) & 0xff, a);
++}
++
++// Game button art is not decoded yet: draw the prompt as a labelled badge.
++const char* PromptLabel(const std::string& name) {
++    if (name == "KG_OK") return "X";
++    if (name == "KG_Cancel") return "O";
++    if (name == "KG_L1") return "L1";
++    if (name == "KG_R1") return "R1";
++    return name.rfind("KG_", 0) == 0 ? name.c_str() + 3 : name.c_str();
++}
++
++void DrawStream(ImDrawList* dl, const CachedLayer& layer, float ox, float oy, float s) {
++    const std::vector<uint8_t>& b = layer.cmds;
++    if (b.size() < 12 || std::memcmp(b.data(), "BBUI", 4) != 0) return;
++    uint32_t count = 0;
++    std::memcpy(&count, b.data() + 8, 4);
++    Reader r{b.data(), b.size()};
++    ImFont* font = ImGui::GetFont();
++    for (uint32_t i = 0; i < count && r.ok; ++i) {
++        const uint8_t op = r.u8();
++        const float x = r.f32() * s + ox, y = r.f32() * s + oy, w = r.f32() * s, h = r.f32() * s;
++        const ImVec2 lo(x, y), hi(x + w, y + h);
++        if (op == 1) {
++            dl->AddRectFilled(lo, hi, Rgba(r.u32(), layer.alpha));
++        } else if (op == 2) {
++            const float width = r.f32() * s;
++            dl->AddRect(lo, hi, Rgba(r.u32(), layer.alpha), 0.0f, 0, std::max(1.0f, width));
++        } else if (op == 3) {
++            const float size = r.f32() * s;
++            const uint32_t color = r.u32();
++            const uint8_t align = r.u8(), bold = r.u8();
++            const uint16_t len = static_cast<uint16_t>(r.u8() | (r.u8() << 8));
++            const char* text = r.bytes(len);
++            if (!r.ok || !text || len == 0) continue;
++            const ImVec2 ts = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text, text + len);
++            float tx = x;
++            if (ts.x < w) tx += align == 1 ? (w - ts.x) * 0.5f : align == 2 ? (w - ts.x) : 0.0f;
++            const float ty = y + (h - ts.y) * 0.5f;
++            dl->PushClipRect(lo, hi, true);
++            const ImU32 col = Rgba(color, layer.alpha);
++            dl->AddText(font, size, ImVec2(tx, ty), col, text, text + len);
++            if (bold) dl->AddText(font, size, ImVec2(tx + std::max(0.6f, size * 0.03f), ty), col, text, text + len);
++            dl->PopClipRect();
++        } else if (op == 4) {
++            const uint32_t tint = r.u32();
++            const uint8_t len = r.u8();
++            const char* name = r.bytes(len);
++            if (!r.ok || !name) continue;
++            const std::string label = PromptLabel(std::string(name, len));
++            const float side = std::min(w, h);
++            const ImVec2 c(x + w * 0.5f, y + h * 0.5f);
++            dl->AddCircleFilled(c, side * 0.5f, Rgba(0x00000099, layer.alpha), 24);
++            dl->AddCircle(c, side * 0.5f, Rgba(tint, layer.alpha), 24, std::max(1.0f, s * 1.5f));
++            const float size = side * (label.size() > 1 ? 0.42f : 0.55f);
++            const ImVec2 ts = font->CalcTextSizeA(size, FLT_MAX, 0.0f, label.c_str());
++            dl->AddText(font, size, ImVec2(c.x - ts.x * 0.5f, c.y - ts.y * 0.5f), Rgba(tint, layer.alpha), label.c_str());
++        } else {
++            return;
++        }
++    }
++}
++
++void DrawLayers() {
++    if (layer_cache.empty()) return;
++    const ImVec2 out = ImGui::GetIO().DisplaySize;
++    const float fw = float(frame_w.load()), fh = float(frame_h.load());
++    if (out.x <= 0 || out.y <= 0 || fw <= 0 || fh <= 0) return;
++    const float fit = std::min(out.x / fw, out.y / fh); // the presenter's aspect fit of the game frame
++    const float rw = fw * fit, rh = fh * fit;
++    const float scale = std::min(rw / 1920.0f, rh / 1080.0f); // the stage inside that rectangle
++    const float ox = (out.x - rw) * 0.5f + (rw - 1920.0f * scale) * 0.5f;
++    const float oy = (out.y - rh) * 0.5f + (rh - 1080.0f * scale) * 0.5f;
++    ImDrawList* dl = ImGui::GetBackgroundDrawList(); // under the developer windows
++    for (const CachedLayer& layer : layer_cache) DrawStream(dl, layer, ox, oy, scale);
++}
++
 +} // namespace
 +
 +// runtime_modhost.c, any thread, under its log lock.
@@ -273,18 +530,55 @@ index 0000000..561c53a
 +    ui->collapsing_header = CollapsingHeader;
 +    ui->combo = Combo;
 +    ui->text_colored = TextColored;
++    ui->push_scope = PushScope;
++    ui->pop_scope = PopScope;
++    ui->table_begin = TableBegin;
++    ui->table_next_row = TableRow;
++    ui->table_next_column = TableColumn;
++    ui->table_end = TableEnd;
 +}
 +
 +namespace BbModUi {
 +
++bool TryBeginFrame(bool menu_open) {
++    modhost* h = runtime_modhost_get();
++    return !menu_open || !h || modhost_try_lock(h);
++}
++
++void EndFrame(bool menu_open) {
++    modhost* h = runtime_modhost_get();
++    if (menu_open && h) modhost_unlock(h);
++}
++
 +bool Visible() {
++    if (LayersActive()) return true;
 +    std::scoped_lock lock{toast_mutex};
 +    return !toasts.empty();
++}
++
++bool Captures() {
++    modhost* h = runtime_modhost_get();
++    return h && modhost_ui_captures(h) != 0;
++}
++
++bool LayersActive() {
++    modhost* h = runtime_modhost_get();
++    return h && modhost_ui_active(h) != 0;
++}
++
++void Input(unsigned action) {
++    if (modhost* h = runtime_modhost_get()) modhost_ui_input(h, action);
++}
++
++void SetFrameSize(unsigned width, unsigned height) {
++    if (width && height) { frame_w = width; frame_h = height; }
 +}
 +
 +void Draw(bool menu_open) {
 +    modhost* h = runtime_modhost_get();
 +    if (!h) return;
++    RefreshLayers(h);
++    DrawLayers();
 +    if (menu_open && modhost_try_lock(h)) {
 +        ModsWindow(h);
 +        modhost_draw_panels(h);
@@ -297,27 +591,45 @@ index 0000000..561c53a
 +} // namespace BbModUi
 diff --git a/gpu/shim/bbport_modui.h b/gpu/shim/bbport_modui.h
 new file mode 100644
-index 0000000..7553f98
+index 0000000..1d60b0c
 --- /dev/null
 +++ b/gpu/shim/bbport_modui.h
-@@ -0,0 +1,15 @@
+@@ -0,0 +1,33 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +// bbport: native code mods in the overlay (bbport_modui.cpp). Without BB_MODHOST both are no-ops.
 +#pragma once
 +
 +namespace BbModUi {
 +#ifdef BB_MODHOST
++/// Mod UI layers (ABI 1.11). Any thread: a visible interactive layer owns the pad and keyboard.
++bool Captures();
++/// Any thread: a layer is published, so the overlay has something to draw.
++bool LayersActive();
++/// Window thread: queue one BBM_UI_ACT_* for the foreground layer.
++void Input(unsigned action);
++/// Present thread: the size of the game frame, for fitting the 1920x1080 stage.
++void SetFrameSize(unsigned width, unsigned height);
 +/// Toasts pending: the overlay must draw this frame.
 +bool Visible();
++// Acquire before starting an ImGui frame. On contention, keep the previous draw
++// data intact rather than generating a frame with missing mod windows.
++bool TryBeginFrame(bool menu_open);
++void EndFrame(bool menu_open);
 +/// Present thread, inside the ImGui frame: Mods window and mod panels (menu open), toasts.
 +void Draw(bool menu_open);
 +#else
++inline bool Captures() { return false; }
++inline bool LayersActive() { return false; }
++inline void Input(unsigned) {}
++inline void SetFrameSize(unsigned, unsigned) {}
 +inline bool Visible() { return false; }
++inline bool TryBeginFrame(bool) { return true; }
++inline void EndFrame(bool) {}
 +inline void Draw(bool) {}
 +#endif
 +} // namespace BbModUi
 diff --git a/gpu/shim/bbport_overlay.cpp b/gpu/shim/bbport_overlay.cpp
-index 0ec1f6b..468ac8e 100644
+index 651b74e..59ef8ef 100644
 --- a/gpu/shim/bbport_overlay.cpp
 +++ b/gpu/shim/bbport_overlay.cpp
 @@ -1,5 +1,6 @@
@@ -346,7 +658,7 @@ index 0ec1f6b..468ac8e 100644
  bool l3_down = false, r3_down = false;
  bool dirty = false; // settings changed while open: saved on close
  // The game's text dialog (SetTextEntry), guarded by imgui_mutex.
-@@ -67,7 +80,7 @@ void SetOpen(bool value) {
+@@ -67,13 +80,120 @@ void SetOpen(bool value) {
      if (menu_open.exchange(value) == value) {
          return;
      }
@@ -355,7 +667,120 @@ index 0ec1f6b..468ac8e 100644
      if (!value && dirty) {
          dirty = false;
          BbSettings::Save();
-@@ -586,7 +599,7 @@ void UpdateTextInput(SDL_Window* window) {
+     }
+ }
+ 
++// ---- Mod UI layers (ABI 1.11): semantic actions from keyboard and pad ------------------------
++// Values match BBM_UI_ACT_* in bbmod.h.
++enum UiAction : unsigned { UiUp = 1, UiDown, UiLeft, UiRight, UiConfirm, UiBack, UiPrevTab, UiNextTab };
++
++// Held direction (stick or d-pad) repeats like the game's own menus: after a short delay, then fast.
++std::atomic<unsigned> ui_held{0};
++std::atomic<int64_t> ui_next_repeat_ms{0};
++bool ui_stick_x = false;
++int ui_stick_dir_x = 0, ui_stick_dir_y = 0;
++
++int64_t NowMs() {
++    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
++}
++
++void UiPress(unsigned action, bool repeatable) {
++    BbModUi::Input(action);
++    if (repeatable) {
++        ui_held = action;
++        ui_next_repeat_ms = NowMs() + 350;
++    }
++}
++void UiRelease(unsigned action) {
++    unsigned expected = action;
++    ui_held.compare_exchange_strong(expected, 0u);
++}
++
++unsigned UiKeyAction(SDL_Keycode key) {
++    switch (key) {
++    case SDLK_UP: return UiUp;
++    case SDLK_DOWN: return UiDown;
++    case SDLK_LEFT: return UiLeft;
++    case SDLK_RIGHT: return UiRight;
++    case SDLK_RETURN: case SDLK_KP_ENTER: case SDLK_SPACE: return UiConfirm;
++    case SDLK_ESCAPE: case SDLK_BACKSPACE: return UiBack;
++    case SDLK_PAGEUP: case SDLK_Q: return UiPrevTab;
++    case SDLK_PAGEDOWN: case SDLK_E: return UiNextTab;
++    default: return 0;
++    }
++}
++unsigned UiButtonAction(u8 button) {
++    switch (button) {
++    case SDL_GAMEPAD_BUTTON_DPAD_UP: return UiUp;
++    case SDL_GAMEPAD_BUTTON_DPAD_DOWN: return UiDown;
++    case SDL_GAMEPAD_BUTTON_DPAD_LEFT: return UiLeft;
++    case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: return UiRight;
++    case SDL_GAMEPAD_BUTTON_SOUTH: return UiConfirm;
++    case SDL_GAMEPAD_BUTTON_EAST: return UiBack;
++    case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER: return UiPrevTab;
++    case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: return UiNextTab;
++    default: return 0;
++    }
++}
++
++// Returns true when the event belongs to a mod layer that owns input.
++bool HandleUiEvent(const SDL_Event& event) {
++    if (!BbModUi::Captures()) {
++        ui_held = 0;
++        ui_stick_dir_x = ui_stick_dir_y = 0;
++        return false;
++    }
++    switch (event.type) {
++    case SDL_EVENT_KEY_DOWN:
++    case SDL_EVENT_KEY_UP: {
++        const unsigned action = UiKeyAction(event.key.key);
++        if (!action) return true; // swallow: the game must not see keys while a mod screen is up
++        if (event.type == SDL_EVENT_KEY_UP) {
++            UiRelease(action);
++        } else if (!event.key.repeat) {
++            UiPress(action, action <= UiRight);
++        }
++        return true;
++    }
++    case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
++    case SDL_EVENT_GAMEPAD_BUTTON_UP: {
++        const unsigned action = UiButtonAction(event.gbutton.button);
++        if (!action) return false; // L3/R3 etc. still reach the settings-menu gesture
++        if (event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) UiPress(action, action <= UiRight);
++        else UiRelease(action);
++        return true;
++    }
++    case SDL_EVENT_GAMEPAD_AXIS_MOTION: {
++        const bool x = event.gaxis.axis == SDL_GAMEPAD_AXIS_LEFTX;
++        const bool y = event.gaxis.axis == SDL_GAMEPAD_AXIS_LEFTY;
++        if (!x && !y) return false;
++        int& dir = x ? ui_stick_dir_x : ui_stick_dir_y;
++        const int next = event.gaxis.value > 16000 ? 1 : event.gaxis.value < -16000 ? -1 : (std::abs(event.gaxis.value) < 9000 ? 0 : dir);
++        if (next != dir) {
++            dir = next;
++            const unsigned action = x ? (next > 0 ? UiRight : UiLeft) : (next > 0 ? UiDown : UiUp);
++            if (next != 0) UiPress(action, true);
++            else if (ui_held == (x ? unsigned(UiLeft) : unsigned(UiUp)) || ui_held == (x ? unsigned(UiRight) : unsigned(UiDown))) ui_held = 0;
++        }
++        return true;
++    }
++    case SDL_EVENT_TEXT_INPUT:
++    case SDL_EVENT_MOUSE_MOTION:
++    case SDL_EVENT_MOUSE_BUTTON_DOWN:
++    case SDL_EVENT_MOUSE_BUTTON_UP:
++        return true; // no mouse routing yet; just do not let it reach the game
++    case SDL_EVENT_MOUSE_WHEEL:
++        if (event.wheel.y != 0) BbModUi::Input(event.wheel.y > 0 ? UiUp : UiDown);
++        return true;
++    default:
++        return false;
++    }
++}
++
+ ImGuiKey KeyFromSdl(SDL_Keycode key) {
+     switch (key) {
+     case SDLK_TAB: return ImGuiKey_Tab;
+@@ -601,7 +721,7 @@ void UpdateTextInput(SDL_Window* window) {
      bool want = false;
      {
          std::scoped_lock lock{imgui_mutex};
@@ -364,7 +789,7 @@ index 0ec1f6b..468ac8e 100644
      }
      if (want != SDL_TextInputActive(window)) {
          if (want) {
-@@ -603,14 +616,23 @@ bool HandleEvent(const SDL_Event& event) {
+@@ -618,18 +738,27 @@ bool HandleEvent(const SDL_Event& event) {
          return false;
      }
      ImGuiIO& io = ImGui::GetIO();
@@ -391,7 +816,12 @@ index 0ec1f6b..468ac8e 100644
              return true;
          }
          if (!is_open) {
-@@ -634,7 +656,7 @@ bool HandleEvent(const SDL_Event& event) {
+-            return false;
++            return HandleUiEvent(event);
+         }
+         io.AddKeyEvent(ImGuiMod_Ctrl, (event.key.mod & SDL_KMOD_CTRL) != 0);
+         io.AddKeyEvent(ImGuiMod_Shift, (event.key.mod & SDL_KMOD_SHIFT) != 0);
+@@ -649,11 +778,11 @@ bool HandleEvent(const SDL_Event& event) {
              r3_down = down;
          }
          if (down && l3_down && r3_down) {
@@ -400,9 +830,67 @@ index 0ec1f6b..468ac8e 100644
              return true;
          }
          if (!is_open) {
-@@ -688,11 +710,12 @@ bool HandleEvent(const SDL_Event& event) {
+-            return false;
++            return HandleUiEvent(event);
+         }
+         if (const ImGuiKey key = KeyFromGamepad(button); key != ImGuiKey_None) {
+             io.AddKeyEvent(key, down);
+@@ -664,14 +793,14 @@ bool HandleEvent(const SDL_Event& event) {
+         // Typed characters (Ctrl+click on a slider, a text field): key events alone erase but
+         // do not type. SDL sends them while text input is on (UpdateTextInput).
+         if (!is_open) {
+-            return false;
++            return HandleUiEvent(event);
+         }
+         io.AddInputCharactersUTF8(event.text.text);
+         return true;
+     }
+     case SDL_EVENT_MOUSE_MOTION: {
+         if (!is_open) {
+-            return false;
++            return HandleUiEvent(event);
+         }
+         const float density = PixelDensity(event.motion.windowID);
+         io.AddMousePosEvent(event.motion.x * density, event.motion.y * density);
+@@ -680,7 +809,7 @@ bool HandleEvent(const SDL_Event& event) {
+     case SDL_EVENT_MOUSE_BUTTON_DOWN:
+     case SDL_EVENT_MOUSE_BUTTON_UP: {
+         if (!is_open) {
+-            return false;
++            return HandleUiEvent(event);
+         }
+         const int button = event.button.button == SDL_BUTTON_LEFT    ? 0
+                            : event.button.button == SDL_BUTTON_RIGHT  ? 1
+@@ -693,21 +822,38 @@ bool HandleEvent(const SDL_Event& event) {
+     }
+     case SDL_EVENT_MOUSE_WHEEL:
+         if (!is_open) {
+-            return false;
++            return HandleUiEvent(event);
+         }
+         io.AddMouseWheelEvent(event.wheel.x, event.wheel.y);
+         return true;
++    case SDL_EVENT_GAMEPAD_AXIS_MOTION:
++        return is_open ? false : HandleUiEvent(event);
+     default:
+         return false;
+     }
  }
  
++// Window thread, once per poll: hold-to-repeat for a direction pushed on a mod screen.
++void PumpUi() {
++    const unsigned held = ui_held.load();
++    if (!held) return;
++    if (!BbModUi::Captures()) { ui_held = 0; return; }
++    const int64_t now = NowMs();
++    if (now >= ui_next_repeat_ms.load()) {
++        BbModUi::Input(held);
++        ui_next_repeat_ms = now + 80;
++    }
++}
++
++void SetFrameSize(unsigned width, unsigned height) { BbModUi::SetFrameSize(width, height); }
++
  bool Visible() {
 -    return initialized && (menu_open || text_entry_active || BbSettings::Get().show_fps);
 +    return initialized && (menu_open || mods_open || text_entry_active || BbSettings::Get().show_fps ||
@@ -411,20 +899,183 @@ index 0ec1f6b..468ac8e 100644
  
  bool CapturesInput() {
 -    return menu_open || text_entry_active;
-+    return menu_open || mods_open || text_entry_active;
++    return menu_open || mods_open || text_entry_active || BbModUi::Captures();
  }
  
  void SetTextEntry(bool active, const std::string& prompt, const std::string& text) {
-@@ -761,6 +784,7 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
-     if (text_entry_active) {
-         TextEntryBox();
+@@ -765,18 +911,40 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
+         base_scale = scale;
      }
-+    BbModUi::Draw(menu_open || mods_open); // code mods: Mods window, panels, log (F1 or menu); toasts
-     ImGui::Render();
+ 
+-    ImGui_ImplVulkan_NewFrame();
+-    ImGui::NewFrame();
+-    if (menu_open) {
+-        Menu();
+-    }
+-    if (BbSettings::Get().show_fps && !menu_open) {
+-        FpsCounter();
+-    }
+-    if (text_entry_active) {
+-        TextEntryBox();
++    // Never wait for a mod reload while holding imgui_mutex. If the host is busy,
++    // reuse the last complete draw data (owned by ImGui until the next NewFrame).
++    // Calling NewFrame on contention would erase the mod windows for that frame.
++    const bool draw_mods = menu_open || mods_open;
++    const bool fresh = BbModUi::TryBeginFrame(draw_mods);
++    if (fresh) {
++        ImGui_ImplVulkan_NewFrame();
++        ImGui::NewFrame();
++        if (menu_open) {
++            Menu();
++        }
++        if (BbSettings::Get().show_fps && !menu_open) {
++            FpsCounter();
++        }
++        if (text_entry_active) {
++            TextEntryBox();
++        }
++        BbModUi::Draw(draw_mods);
++        BbModUi::EndFrame(draw_mods);
++        ImGui::Render();
++    }
++    ImDrawData* draw_data = ImGui::GetDrawData();
++    // No previous frame yet, or a resolution change: don't replay stale geometry.
++    if (!draw_data || !draw_data->Valid || draw_data->DisplaySize.x != float(extent.width) ||
++        draw_data->DisplaySize.y != float(extent.height)) return;
++    if (!fresh) {
++        // Raw ImGui users may register render callbacks into their DLL. Never
++        // replay those while the host could be unloading that DLL.
++        for (const ImDrawList* list : draw_data->CmdLists) {
++            for (const ImDrawCmd& cmd : list->CmdBuffer) {
++                if (cmd.UserCallback && cmd.UserCallback != ImDrawCallback_ResetRenderState) return;
++            }
++        }
+     }
+-    ImGui::Render();
  
      const vk::RenderingAttachmentInfo attachment{
+         .imageView = view,
+@@ -793,7 +961,7 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
+     {
+         // Font atlas uploads submit to the graphics queue themselves.
+         std::scoped_lock submit_lock{Vulkan::Scheduler::submit_mutex};
+-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmdbuf);
++        ImGui_ImplVulkan_RenderDrawData(draw_data, cmdbuf);
+     }
+     cmdbuf.endRendering();
+ }
+diff --git a/gpu/shim/bbport_overlay.h b/gpu/shim/bbport_overlay.h
+index 86ef250..495e414 100644
+--- a/gpu/shim/bbport_overlay.h
++++ b/gpu/shim/bbport_overlay.h
+@@ -23,6 +23,10 @@ void Init(const Vulkan::Instance& instance, vk::Format format, u32 image_count);
+ 
+ /// Window thread, for every SDL event: true when the menu consumed it.
+ bool HandleEvent(const SDL_Event& event);
++/// Window thread, once per poll: hold-to-repeat for mod screens (ABI 1.11 layers).
++void PumpUi();
++/// Present thread: the game frame size, so mod screens fit the same rectangle.
++void SetFrameSize(unsigned width, unsigned height);
+ /// Turns SDL text input on while the menu edits a value (window thread, once per poll).
+ void UpdateTextInput(SDL_Window* window);
+ 
+diff --git a/gpu/shim/sdl_window.h b/gpu/shim/sdl_window.h
+index bbf61e5..f63e545 100644
+--- a/gpu/shim/sdl_window.h
++++ b/gpu/shim/sdl_window.h
+@@ -46,7 +46,8 @@ public:
+     /// Processes pending window events. Returns false once the user closed the window.
+     bool PollEvents();
+     /// Keyboard text entry for the system IME dialog; typed text shows in the title bar.
+-    void BeginTextInput(const std::string& initial, const std::string& prompt);
++    void BeginTextInput(const std::string& initial, const std::string& prompt, uint32_t max_bytes = 0);
++    void CancelTextInput();
+     /// 0 while typing, 1 confirmed (Enter), 2 cancelled (Escape); text is UTF-8.
+     int PollTextInput(std::string& text);
+ 
+@@ -66,7 +67,8 @@ private:
+     std::atomic<s32> width, height;
+     std::atomic<bool> is_open{true};
+     std::mutex text_mutex;
+-    bool text_requested{}, text_active{};
++    bool text_requested{}, text_active{}, text_cancel_requested{};
++    size_t text_max_bytes{SIZE_MAX};
+     int text_state{};
+     std::string text, text_prompt, base_title;
+     void UpdateTextTitle();
+diff --git a/gpu/shim/window.cpp b/gpu/shim/window.cpp
+index 550e79e..c8d2364 100644
+--- a/gpu/shim/window.cpp
++++ b/gpu/shim/window.cpp
+@@ -93,18 +93,28 @@ WindowSDL::~WindowSDL() {
+     SDL_DestroyWindow(window);
+ }
+ 
+-void WindowSDL::BeginTextInput(const std::string& initial, const std::string& prompt) {
++void WindowSDL::BeginTextInput(const std::string& initial, const std::string& prompt, uint32_t max_bytes) {
+     std::scoped_lock lock{text_mutex};
+     text = initial;
+     text_prompt = prompt;
+     text_state = 0;
++    text_max_bytes = max_bytes ? max_bytes : SIZE_MAX;
+     text_requested = true;
+ }
+ 
++void WindowSDL::CancelTextInput() {
++    std::scoped_lock lock{text_mutex};
++    text_cancel_requested = true;
++    text_state = 0; // pending until the window thread acknowledges cancellation
++}
++
+ int WindowSDL::PollTextInput(std::string& out) {
+     std::scoped_lock lock{text_mutex};
+     out = text;
+-    return text_state;
++    // An Enter event already being drained can set text_state after another
++    // thread requested cancellation. Only the window-thread ack may retire
++    // that request; otherwise it could close the next dialog on the next poll.
++    return text_cancel_requested ? 0 : text_state;
+ }
+ 
+ void WindowSDL::UpdateTextTitle() {
+@@ -117,7 +127,14 @@ void WindowSDL::UpdateTextTitle() {
+ bool WindowSDL::PollEvents() {
+     {
+         std::scoped_lock lock{text_mutex};
+-        if (text_requested) { // SDL text input must be toggled from the window thread
++        if (text_cancel_requested) {
++            text_cancel_requested = false;
++            text_requested = false;
++            text_active = false;
++            text_state = 2;
++            SDL_StopTextInput(window);
++            UpdateTextTitle();
++        } else if (text_requested) { // SDL text input must be toggled from the window thread
+             text_requested = false;
+             text_active = true;
+             SDL_StartTextInput(window);
+@@ -127,6 +144,7 @@ bool WindowSDL::PollEvents() {
+     if (!text_active) {
+         BbOverlay::UpdateTextInput(window);
+     }
++    BbOverlay::PumpUi();
+     SDL_Event event;
+     while (SDL_PollEvent(&event)) {
+         // Button prompts follow the device that was used last: a key, a click, the wheel or a
+@@ -213,7 +231,10 @@ bool WindowSDL::PollEvents() {
+         if (text_active && (event.type == SDL_EVENT_TEXT_INPUT || event.type == SDL_EVENT_KEY_DOWN)) {
+             std::scoped_lock lock{text_mutex};
+             if (event.type == SDL_EVENT_TEXT_INPUT) {
+-                text += event.text.text;
++                const std::string incoming = event.text.text;
++                size_t take = std::min(incoming.size(), text_max_bytes > text.size() ? text_max_bytes - text.size() : 0);
++                while (take < incoming.size() && take && (static_cast<unsigned char>(incoming[take]) & 0xC0) == 0x80) --take;
++                text.append(incoming, 0, take);
+             } else if (event.key.key == SDLK_BACKSPACE && !text.empty()) {
+                 size_t cut = text.size() - 1; // drop one UTF-8 code point
+                 while (cut > 0 && (static_cast<unsigned char>(text[cut]) & 0xC0) == 0x80) --cut;
 diff --git a/run.py b/run.py
-index d0721f0..0ece0c1 100644
+index f6caa50..2c0bdc8 100644
 --- a/run.py
 +++ b/run.py
 @@ -230,6 +230,9 @@ def main():
@@ -434,11 +1085,11 @@ index d0721f0..0ece0c1 100644
 +    # Code mods (bbmod, runtime_modhost.c): one folder per mod, beside the loose-file mods.
 +    env.setdefault('BB_CODEMODS_DIR', str(data / 'bbmods'))
 +    Path(env['BB_CODEMODS_DIR']).mkdir(parents=True, exist_ok=True)
-     mod_args = [game, '--out', out, '--mods-dir', env.get('BB_MODS_DIR', data / 'mods'),
-                 '--config', env.get('BB_MODS_CONFIG', data / 'mods.json'),
-                 '--enabled', env.get('BB_MODS_ENABLED', '1')]
+     # Field of view (bbport.ini fov, degrees; 43 is the game's): the camera table with every
+     # camera's field of view scaled, a layer below the mods. fov.py keeps it between starts
+     # while the setting and the game file are the same.
 diff --git a/src/probe.c b/src/probe.c
-index 07344eb..ddd3b90 100644
+index 988d694..d91d3be 100644
 --- a/src/probe.c
 +++ b/src/probe.c
 @@ -7,6 +7,7 @@
@@ -449,7 +1100,7 @@ index 07344eb..ddd3b90 100644
  #include "gpu/bbgpu.h"
  #if !defined(__x86_64__) || !defined(__GNUC__)
  #error This prototype requires x86-64 GCC or Clang (including MinGW).
-@@ -221,6 +222,15 @@ static LONG CALLBACK vectored_fault(EXCEPTION_POINTERS *info) {
+@@ -235,6 +236,15 @@ static LONG CALLBACK vectored_fault(EXCEPTION_POINTERS *info) {
          int ours=(image && rip-(uintptr_t)image<0x20000000) ||
                   (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,(LPCSTR)rip,&module) && module==self) ||
                   !module;
@@ -462,10 +1113,10 @@ index 07344eb..ddd3b90 100644
 +            runtime_modhost_fault(rip);
 +            return fatal_exception(info);
 +        }
-         if (ours) return fatal_exception(info);
-     }
-     /* BB_STRICT_HANDLES=1: a closed or invalid handle used anywhere is reported (diagnostics). */
-@@ -695,6 +705,8 @@ int main(int argc, char **argv) {
+         /* bbport: the C runtime handles none of its own faults (a bad pointer to memcpy or
+          * free from the port or the game): reported with the call chain into them, instead of
+          * Windows ending the process without a word (crashes after 1-2 hours in ucrtbase.dll). */
+@@ -715,6 +725,8 @@ int main(int argc, char **argv) {
          }
      }
      bbnet_initialize(); /* the online session starts with the game */
@@ -496,12 +1147,179 @@ index c64c0f9..68e263c 100644
      if (!result && strstr(out,"/dvdroot_ps4/")) {
          const char *language=getenv("BB_LANGUAGE");
          if (language && !strcmp(language,"17")) {
+diff --git a/src/runtime_haptics.inc b/src/runtime_haptics.inc
+new file mode 100644
+index 0000000..baac997
+--- /dev/null
++++ b/src/runtime_haptics.inc
+@@ -0,0 +1,75 @@
++/* USB DualSense actuator audio. Included by runtime_pad.c; all calls hold lock.
++ * Finite clips, no mod callbacks or borrowed buffers on the audio thread.
++ * Four-channel layout: silent front pair, left/right actuators on rear pair.
++ * References: SDL issue #9197 and SDL_hidapi_ps5.c (zero rumble restores audio).
++ */
++static SDL_AudioStream *grip_stream;
++static SDL_JoystickID grip_pad;
++static uint64_t grip_until_ms, grip_retry_ms;
++static void grip_close(void) {
++    if (grip_stream) SDL_DestroyAudioStream(grip_stream);
++    grip_stream=NULL; grip_pad=0; grip_until_ms=0;
++}
++static int grip_open(SDL_Gamepad *g) {
++    if (grip_stream && grip_pad==SDL_GetGamepadID(g)) return 0;
++    grip_close();
++    uint64_t now=SDL_GetTicks();
++    if (now<grip_retry_ms) return -1;
++    grip_retry_ms=now+3000;
++    if (!SDL_WasInit(SDL_INIT_AUDIO) && !SDL_InitSubSystem(SDL_INIT_AUDIO)) return -1;
++    /* Never choose a default output. Reject ambiguity (including multiple pads).
++     * Name+quad layout is a conservative single-controller heuristic, not USB
++     * container identity matching. Renamed endpoints fail closed. */
++    int count=0, pads=0;
++    SDL_JoystickID *ids=SDL_GetGamepads(&count);
++    for (int i=0; ids && i<count; ++i)
++        if (SDL_GetGamepadTypeForID(ids[i])==SDL_GAMEPAD_TYPE_PS5) ++pads;
++    SDL_free(ids);
++    if (pads!=1) return -1;
++    SDL_AudioDeviceID chosen=0;
++    SDL_AudioDeviceID *devices=SDL_GetAudioPlaybackDevices(&count);
++    int matches=0;
++    for (int i=0; devices && i<count; ++i) {
++        const char *name=SDL_GetAudioDeviceName(devices[i]);
++        SDL_AudioSpec format;
++        if (name && (SDL_strcasestr(name,"Wireless Controller") || SDL_strcasestr(name,"DualSense")) &&
++            SDL_GetAudioDeviceFormat(devices[i],&format,NULL) && format.channels==4) {
++            chosen=devices[i]; ++matches;
++        }
++    }
++    SDL_free(devices);
++    if (matches!=1) return -1;
++    SDL_AudioSpec source={SDL_AUDIO_F32,4,48000};
++    grip_stream=SDL_OpenAudioDeviceStream(chosen,&source,NULL,NULL);
++    SDL_AudioSpec actual;
++    if (!grip_stream || !SDL_GetAudioDeviceFormat(SDL_GetAudioStreamDevice(grip_stream),&actual,NULL) || actual.channels!=4) {
++        grip_close(); return -1;
++    }
++    grip_pad=SDL_GetGamepadID(g); grip_retry_ms=0;
++    printf("Runtime: DualSense USB grip haptics: %s\n",SDL_GetAudioDeviceName(chosen));
++    return 0;
++}
++static int grip_play(SDL_Gamepad *g,const float *stereo,uint32_t frames) {
++    if (!frames) { grip_close(); return 0; }
++    if (!g || SDL_GetGamepadType(g)!=SDL_GAMEPAD_TYPE_PS5 ||
++        SDL_GetGamepadConnectionState(g)!=SDL_JOYSTICK_CONNECTION_WIRED ||
++        frames>12000 || !stereo || grip_open(g)) return -1;
++    SDL_AudioSpec actual;
++    if (!SDL_GetAudioDeviceFormat(SDL_GetAudioStreamDevice(grip_stream),&actual,NULL) || actual.channels!=4) {
++        grip_close(); return -1;
++    }
++    float quad[12000*4];
++    for (uint32_t i=0;i<frames;++i) {
++        float l=stereo[i*2],r=stereo[i*2+1];
++        if (!isfinite(l)||!isfinite(r)||fabsf(l)>0.5f||fabsf(r)>0.5f) return -1;
++        quad[i*4]=quad[i*4+1]=0; quad[i*4+2]=l; quad[i*4+3]=r;
++    }
++    /* Clear SDL's rumble state so later LED sends don't disable audio haptics. */
++    if (!SDL_RumbleGamepad(g,0,0,0) || !SDL_ClearAudioStream(grip_stream) ||
++        !SDL_PutAudioStreamData(grip_stream,quad,(int)(frames*4*sizeof(float))) ||
++        !SDL_FlushAudioStream(grip_stream) || !SDL_ResumeAudioStreamDevice(grip_stream)) {
++        grip_close(); return -1;
++    }
++    grip_until_ms=SDL_GetTicks()+(frames+47)/48+30;
++    return 0;
++}
+diff --git a/src/runtime_ime.inc b/src/runtime_ime.inc
+new file mode 100644
+index 0000000..b2452da
+--- /dev/null
++++ b/src/runtime_ime.inc
+@@ -0,0 +1,80 @@
++/* ImeDialog: text typed on the keyboard into the game window (title bar shows it).
++ * OrbisImeDialogParam: user, type, languages(8), enter label, method, filter,
++ * option, max length, char16 buffer, position, alignment, placeholder, title. */
++typedef struct {
++    int32_t user; uint32_t type; uint64_t languages; uint32_t enter_label, input_method;
++    void *filter; uint32_t option, max_length; uint16_t *buffer;
++    float x, y; uint32_t halign, valign; const uint16_t *placeholder, *title; int8_t reserved[16];
++} ImeParam;
++static struct { int running, finished, end_status; uint16_t *buffer; uint32_t max_length; uint64_t token; } ime;
++static pthread_mutex_t ime_lock=PTHREAD_MUTEX_INITIALIZER;
++static size_t utf16_to_utf8(const uint16_t *in, size_t limit, char *out, size_t size) {
++    size_t n=0;
++    for (size_t i=0; in && i<limit && in[i] && n+4<size; ++i) {
++        uint32_t c=in[i];
++        if (c>=0xD800 && c<0xDC00 && i+1<limit && in[i+1]>=0xDC00 && in[i+1]<0xE000) { c=0x10000+((c-0xD800)<<10)+(in[i+1]-0xDC00); ++i; }
++        if (c<0x80) out[n++]=(char)c;
++        else if (c<0x800) { out[n++]=(char)(0xC0|c>>6); out[n++]=(char)(0x80|(c&63)); }
++        else if (c<0x10000) { out[n++]=(char)(0xE0|c>>12); out[n++]=(char)(0x80|((c>>6)&63)); out[n++]=(char)(0x80|(c&63)); }
++        else { out[n++]=(char)(0xF0|c>>18); out[n++]=(char)(0x80|((c>>12)&63)); out[n++]=(char)(0x80|((c>>6)&63)); out[n++]=(char)(0x80|(c&63)); }
++    }
++    out[n]=0; return n;
++}
++static void utf8_to_utf16(const char *in, uint16_t *out, uint32_t max) {
++    uint32_t n=0;
++    for (const unsigned char *p=(const unsigned char *)in; *p && n<max;) {
++        uint32_t c; int extra;
++        if (*p<0x80) { c=*p; extra=0; } else if ((*p&0xE0)==0xC0) { c=*p&31; extra=1; }
++        else if ((*p&0xF0)==0xE0) { c=*p&15; extra=2; } else { c=*p&7; extra=3; }
++        ++p;
++        for (int k=0;k<extra && (*p&0xC0)==0x80;++k) c=(c<<6)|(*p++&63);
++        if (c>=0x10000) { if (n+2>max) break; c-=0x10000; out[n++]=(uint16_t)(0xD800+(c>>10)); out[n++]=(uint16_t)(0xDC00+(c&1023)); }
++        else out[n++]=(uint16_t)c;
++    }
++    out[n<max ? n : max]=0;
++}
++static void ime_complete(int end_status, const char *text) {
++    if (!end_status && ime.buffer && ime.max_length) utf8_to_utf16(text,ime.buffer,ime.max_length);
++    ime.end_status=end_status; ime.finished=1; ime.running=0;
++    printf("Runtime: ImeDialog %s%s%s\n",end_status ? "cancelled" : "text: ",end_status ? "" : text,"");
++}
++static int32_t ime_init_locked(const ImeParam *param, const void *extended) {
++    (void)extended;
++    if (!param || !param->buffer || !param->max_length) return (int32_t)0x80BC0004; /* IME INVALID_ADDRESS */
++    if (ime.running) return (int32_t)0x80BC0003;                                  /* BUSY */
++    memset(&ime,0,sizeof(ime));
++    ime.buffer=param->buffer; ime.max_length=param->max_length; ime.running=1;
++    char initial[512], prompt[256];
++    utf16_to_utf8(param->buffer,param->max_length,initial,sizeof(initial));
++    utf16_to_utf8(param->title,128,prompt,sizeof(prompt));
++    const char *preset=getenv("BB_IME_TEXT");
++    if (preset) { ime_complete(0,preset); return 0; }
++    /* An empty field starts with the player name (launcher) or "Hunter": a controller alone
++     * can accept it (the port has no on-screen keyboard). */
++    const char *name=getenv("BB_USER_NAME");
++    const char *start=initial[0] ? initial : name && *name ? name : "Hunter";
++    int rc=runtime_text_begin(start,prompt[0] ? prompt : "Text",0,&ime.token);
++    if(rc==-3){memset(&ime,0,sizeof ime);return (int32_t)0x80BC0003;}
++    if(rc) ime_complete(0,start);
++    else printf("Runtime: ImeDialog opened: shown on screen; keyboard Enter or Cross accepts, Esc or Circle cancels\n");
++    return 0;
++}
++static int32_t ime_status_locked(void) {
++    if (ime.running) {
++        char text[512];
++        int state=runtime_text_poll(ime.token,text,sizeof(text));
++        if (state) ime_complete(state==1 ? 0 : 1,text);
++    }
++    return ime.running ? 1 : ime.finished ? 2 : 0; /* Running / Finished / None */
++}
++static int32_t ime_result_locked(uint32_t *result) {
++    if (!ime.finished) return (int32_t)0x80BC0101; /* DIALOG NOT_FINISHED */
++    if (result) *result=(uint32_t)ime.end_status;
++    return 0;
++}
++static int32_t ime_term_locked(void) { runtime_text_cancel(ime.token);memset(&ime,0,sizeof(ime));return 0; }
++static ABI int32_t ime_init(const ImeParam*p,const void*e){pthread_mutex_lock(&ime_lock);int32_t rc=ime_init_locked(p,e);pthread_mutex_unlock(&ime_lock);return rc;}
++static ABI int32_t ime_status(void){pthread_mutex_lock(&ime_lock);int32_t rc=ime_status_locked();pthread_mutex_unlock(&ime_lock);return rc;}
++static ABI int32_t ime_result(uint32_t*r){pthread_mutex_lock(&ime_lock);int32_t rc=ime_result_locked(r);pthread_mutex_unlock(&ime_lock);return rc;}
++static ABI int32_t ime_term(void){pthread_mutex_lock(&ime_lock);int32_t rc=ime_term_locked();pthread_mutex_unlock(&ime_lock);return rc;}
++
 diff --git a/src/runtime_modhost.c b/src/runtime_modhost.c
 new file mode 100644
-index 0000000..7859d6e
+index 0000000..603a217
 --- /dev/null
 +++ b/src/runtime_modhost.c
-@@ -0,0 +1,228 @@
+@@ -0,0 +1,260 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later
 + * Native code mods (bbmod, third_party/bbmod): the glue between bbport and the
 + * mod host. Built with -DBB_MODHOST (gpu/CMakeLists.txt, on when
@@ -520,6 +1338,7 @@ index 0000000..7859d6e
 + * poll, outside the pad lock. */
 +#include "runtime.h"
 +#include "runtime_modhost.h"
++#include "runtime_text_input.h"
 +
 +#ifdef BB_MODHOST
 +#include <stdbool.h>
@@ -533,7 +1352,9 @@ index 0000000..7859d6e
 +#include "modhost.h"
 +
 +#ifdef _WIN32
++#ifndef WIN32_LEAN_AND_MEAN
 +#define WIN32_LEAN_AND_MEAN
++#endif
 +#include <windows.h>
 +static uint64_t thread_id(void) { return GetCurrentThreadId(); }
 +#else
@@ -634,10 +1455,31 @@ index 0000000..7859d6e
 +    return __atomic_load_n(&pad_buttons, __ATOMIC_RELAXED);
 +}
 +
++extern int runtime_pad_haptics(void *, const float *, uint32_t);
++extern int runtime_pad_effect_info(void *, bbm_pad_info *);
++extern int runtime_pad_effect_send(void *, const uint8_t *, const uint8_t *);
++extern int runtime_pad_effect_led(void *, uint8_t, uint8_t, uint8_t);
++static int pad_captured(void *user) { (void)user; return bbgpu_overlay_captures_input(); }
++static void reset_pad_at_exit(void) {
++    const uint8_t off[11] = {5};
++    runtime_pad_haptics(NULL, NULL, 0);
++    runtime_pad_effect_send(NULL, off, off);
++}
++
 +static int env_on(const char *name) {
 +    const char *v = getenv(name);
 +    return v && v[0] == '1';
 +}
++
++static bbm_status mod_text_begin(void*u,const bbm_text_request*r,uint64_t*t){
++    (void)u;return runtime_text_begin(r->initial,r->title,r->max_bytes,t);
++}
++static bbm_status mod_text_poll(void*u,uint64_t t,bbm_text_result*r){
++    (void)u;int state=runtime_text_poll(t,r->text,sizeof r->text);
++    if(state<0)return state;
++    r->size=sizeof *r;r->state=(uint32_t)state;r->status=BBM_OK;return BBM_OK;
++}
++static void mod_text_cancel(void*u,uint64_t t){(void)u;runtime_text_cancel(t);}
 +
 +void runtime_modhost_start(unsigned char *image, uint64_t size) {
 +    const char *off = getenv("BB_MODHOST");
@@ -658,10 +1500,18 @@ index 0000000..7859d6e
 +    c.ps4_eboot_base = 0x400000;
 +    c.dev_mode = dev_mode;
 +    c.safe_mode = env_on("BB_MODS_SAFE");
++    c.native_observation = env_on("BB_MODS_NATIVE_OBSERVATION");
 +    c.log = log_line;
 +    c.platform.call_guarded = call_guarded;
 +    c.input.keyboard = keyboard;
 +    c.input.pad_buttons = pad;
++    c.text=(modhost_text_backend){NULL,mod_text_begin,mod_text_poll,mod_text_cancel};
++    c.pad.haptics = runtime_pad_haptics;
++    c.pad.info = runtime_pad_effect_info;
++    c.pad.send_triggers = runtime_pad_effect_send;
++    c.pad.lightbar = runtime_pad_effect_led;
++    c.pad.captured = pad_captured;
++    atexit(reset_pad_at_exit);
 +    bbport_modui_fill(&c.ui);
 +    host = modhost_create(&c);
 +    if (!host) { puts("Mods: could not start the mod host"); return; }
@@ -756,7 +1606,7 @@ index 0000000..de7d9d6
 +const char *runtime_modhost_log_path(void);
 +#endif
 diff --git a/src/runtime_pad.c b/src/runtime_pad.c
-index 2b4c2e7..8f40ac0 100644
+index 687bfb5..75bcfb1 100644
 --- a/src/runtime_pad.c
 +++ b/src/runtime_pad.c
 @@ -15,6 +15,7 @@
@@ -767,7 +1617,31 @@ index 2b4c2e7..8f40ac0 100644
  #include <stdio.h>
  #include <stdlib.h>
  #include <string.h>
-@@ -742,6 +743,9 @@ static ABI int32_t pad_read_state(int32_t handle, PadData *data) {
+@@ -65,6 +66,9 @@ _Static_assert(sizeof(ControllerInfo)==28,"OrbisPadControllerInformation layout"
+ static pthread_mutex_t lock=PTHREAD_MUTEX_INITIALIZER;
+ static int initialized, opened, sdl_ready;
+ static SDL_Gamepad *gamepad;
++#ifdef BB_MODHOST
++#include "runtime_haptics.inc"
++#endif
+ static size_t reads;
+ static uint8_t connected_count;
+ static uint64_t last_mouse_sample_us; /* CNV-003: dt since the previous mouse-to-stick sample */
+@@ -85,7 +89,12 @@ static void touch_click(PadData *d, int right) {
+ static SDL_Gamepad *current_gamepad(void) {
+     if (!sdl_ready) sdl_ready = SDL_WasInit(SDL_INIT_GAMEPAD) ? 1 : SDL_InitSubSystem(SDL_INIT_GAMEPAD) ? 1 : -1;
+     if (sdl_ready<0) return NULL;
+-    if (gamepad && !SDL_GamepadConnected(gamepad)) { SDL_CloseGamepad(gamepad); gamepad=NULL; }
++    if (gamepad && !SDL_GamepadConnected(gamepad)) {
++#ifdef BB_MODHOST
++        grip_close();
++#endif
++        SDL_CloseGamepad(gamepad); gamepad=NULL;
++    }
+     if (!gamepad) {
+         int count=0;
+         SDL_JoystickID *ids=SDL_GetGamepads(&count);
+@@ -854,6 +863,9 @@ static ABI int32_t pad_read_state(int32_t handle, PadData *data) {
      pthread_mutex_lock(&lock);
      sample(data); ++reads;
      pthread_mutex_unlock(&lock);
@@ -777,3 +1651,328 @@ index 2b4c2e7..8f40ac0 100644
      return 0;
  }
  /* Buffered read: the port samples once per call, so one entry is returned. */
+@@ -881,6 +893,9 @@ static ABI int32_t pad_vibration(int32_t handle, const uint8_t *param) {
+     if (!param) return ERR_INVALID_ARG;
+     pthread_mutex_lock(&lock);
+     SDL_Gamepad *g=current_gamepad();
++#ifdef BB_MODHOST
++    if (g && SDL_GetTicks() < grip_until_ms) { pthread_mutex_unlock(&lock); return 0; }
++#endif
+     if (g) SDL_RumbleGamepad(g,(uint16_t)(param[0]*257),(uint16_t)(param[1]*257),1000);
+     pthread_mutex_unlock(&lock);
+     return 0;
+@@ -898,3 +913,62 @@ static const RuntimeExport exports[]={
+ };
+ uintptr_t runtime_pad_resolve(const char *name) { return RUNTIME_LOOKUP(exports,name); }
+ void runtime_pad_report(void) { printf("Runtime: pad reads=%zu, gamepad=%s\n",reads,gamepad ? SDL_GetGamepadName(gamepad) : "none"); }
++
++#ifdef BB_MODHOST
++#include "modhost.h"
++/* All device access remains under the existing pad mutex. No borrowed SDL
++ * handle escapes: disconnect/close cannot race an effects send. */
++int runtime_pad_effect_info(void *user, bbm_pad_info *out) {
++    (void)user;
++    memset(out, 0, sizeof *out);
++    pthread_mutex_lock(&lock);
++    SDL_Gamepad *g = current_gamepad();
++    if (g) {
++        SDL_GamepadType type = SDL_GetGamepadType(g);
++        out->device_id = SDL_GetGamepadID(g);
++        out->kind = type == SDL_GAMEPAD_TYPE_PS5 ? BBM_PAD_DUALSENSE :
++                    type == SDL_GAMEPAD_TYPE_PS4 ? BBM_PAD_DUALSHOCK4 : BBM_PAD_OTHER;
++        if (type == SDL_GAMEPAD_TYPE_PS5) out->features |= BBM_PAD_HAS_TRIGGERS;
++        if (type == SDL_GAMEPAD_TYPE_PS5 && SDL_GetBooleanProperty(SDL_GetGamepadProperties(g),
++                SDL_PROP_GAMEPAD_CAP_RGB_LED_BOOLEAN, false)) out->features |= BBM_PAD_HAS_LIGHTBAR;
++        SDL_JoystickConnectionState connection = SDL_GetGamepadConnectionState(g);
++        out->connection = connection == SDL_JOYSTICK_CONNECTION_WIRED ? BBM_PAD_USB :
++                          connection == SDL_JOYSTICK_CONNECTION_WIRELESS ? BBM_PAD_BLUETOOTH : BBM_PAD_UNKNOWN;
++        /* Physical axes intentionally bypass input.ini action remapping. */
++        out->l2_depth = trigger(SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFT_TRIGGER));
++        out->r2_depth = trigger(SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER));
++    }
++    pthread_mutex_unlock(&lock);
++    return 0;
++}
++int runtime_pad_effect_send(void *user, const uint8_t *right, const uint8_t *left) {
++    (void)user;
++    uint8_t packet[47] = {0};
++    if (right) { packet[0] |= 4; memcpy(packet + 10, right, 11); }
++    if (left) { packet[0] |= 8; memcpy(packet + 21, left, 11); }
++    pthread_mutex_lock(&lock);
++    SDL_Gamepad *g = current_gamepad();
++    int rc = g && SDL_GetGamepadType(g) == SDL_GAMEPAD_TYPE_PS5 &&
++             SDL_SendGamepadEffect(g, packet, sizeof packet) ? 0 : -1;
++    pthread_mutex_unlock(&lock);
++    return rc;
++}
++int runtime_pad_effect_led(void *user, uint8_t r, uint8_t g, uint8_t b) {
++    (void)user;
++    pthread_mutex_lock(&lock);
++    SDL_Gamepad *pad = current_gamepad();
++    int rc = pad && SDL_GetGamepadType(pad) == SDL_GAMEPAD_TYPE_PS5 && SDL_SetGamepadLED(pad, r, g, b) ? 0 : -1;
++    pthread_mutex_unlock(&lock);
++    return rc;
++}
++#endif
++
++#ifdef BB_MODHOST
++int runtime_pad_haptics(void *user,const float *stereo,uint32_t frames) {
++    (void)user;
++    pthread_mutex_lock(&lock);
++    int rc=grip_play(frames ? current_gamepad() : NULL,stereo,frames);
++    pthread_mutex_unlock(&lock);
++    return rc;
++}
++#endif
+diff --git a/src/runtime_services.c b/src/runtime_services.c
+index e75ed89..cdc221c 100644
+--- a/src/runtime_services.c
++++ b/src/runtime_services.c
+@@ -6,6 +6,7 @@
+  * Every entry here is an explicit contract; unknown functions still stop. */
+ #define _GNU_SOURCE
+ #include "runtime.h"
++#include "runtime_text_input.h"
+ #include "gpu/bbgpu.h"
+ #include <stdio.h>
+ #include <stdlib.h>
+@@ -261,78 +262,7 @@ static int32_t dialog_term(int i) {
+     static ABI int32_t tag##_term(void) { return dialog_term(i); }
+ DIALOG(msg,1) DIALOG(save,2) DIALOG(profile,3) DIALOG(commerce,4)
+ static ABI int32_t profile_result(void *result) { if (result) memset(result,0,4); return 0; }
+-/* ImeDialog: text typed on the keyboard into the game window (title bar shows it).
+- * OrbisImeDialogParam: user, type, languages(8), enter label, method, filter,
+- * option, max length, char16 buffer, position, alignment, placeholder, title. */
+-typedef struct {
+-    int32_t user; uint32_t type; uint64_t languages; uint32_t enter_label, input_method;
+-    void *filter; uint32_t option, max_length; uint16_t *buffer;
+-    float x, y; uint32_t halign, valign; const uint16_t *placeholder, *title; int8_t reserved[16];
+-} ImeParam;
+-static struct { int running, finished, end_status; uint16_t *buffer; uint32_t max_length; } ime;
+-static size_t utf16_to_utf8(const uint16_t *in, size_t limit, char *out, size_t size) {
+-    size_t n=0;
+-    for (size_t i=0; in && i<limit && in[i] && n+4<size; ++i) {
+-        uint32_t c=in[i];
+-        if (c>=0xD800 && c<0xDC00 && i+1<limit && in[i+1]>=0xDC00 && in[i+1]<0xE000) { c=0x10000+((c-0xD800)<<10)+(in[i+1]-0xDC00); ++i; }
+-        if (c<0x80) out[n++]=(char)c;
+-        else if (c<0x800) { out[n++]=(char)(0xC0|c>>6); out[n++]=(char)(0x80|(c&63)); }
+-        else if (c<0x10000) { out[n++]=(char)(0xE0|c>>12); out[n++]=(char)(0x80|((c>>6)&63)); out[n++]=(char)(0x80|(c&63)); }
+-        else { out[n++]=(char)(0xF0|c>>18); out[n++]=(char)(0x80|((c>>12)&63)); out[n++]=(char)(0x80|((c>>6)&63)); out[n++]=(char)(0x80|(c&63)); }
+-    }
+-    out[n]=0; return n;
+-}
+-static void utf8_to_utf16(const char *in, uint16_t *out, uint32_t max) {
+-    uint32_t n=0;
+-    for (const unsigned char *p=(const unsigned char *)in; *p && n<max;) {
+-        uint32_t c; int extra;
+-        if (*p<0x80) { c=*p; extra=0; } else if ((*p&0xE0)==0xC0) { c=*p&31; extra=1; }
+-        else if ((*p&0xF0)==0xE0) { c=*p&15; extra=2; } else { c=*p&7; extra=3; }
+-        ++p;
+-        for (int k=0;k<extra && (*p&0xC0)==0x80;++k) c=(c<<6)|(*p++&63);
+-        if (c>=0x10000) { if (n+2>max) break; c-=0x10000; out[n++]=(uint16_t)(0xD800+(c>>10)); out[n++]=(uint16_t)(0xDC00+(c&1023)); }
+-        else out[n++]=(uint16_t)c;
+-    }
+-    out[n<max ? n : max]=0;
+-}
+-static void ime_complete(int end_status, const char *text) {
+-    if (!end_status && ime.buffer && ime.max_length) utf8_to_utf16(text,ime.buffer,ime.max_length);
+-    ime.end_status=end_status; ime.finished=1; ime.running=0;
+-    printf("Runtime: ImeDialog %s%s%s\n",end_status ? "cancelled" : "text: ",end_status ? "" : text,"");
+-}
+-static ABI int32_t ime_init(const ImeParam *param, const void *extended) {
+-    (void)extended;
+-    if (!param || !param->buffer || !param->max_length) return (int32_t)0x80BC0004; /* IME INVALID_ADDRESS */
+-    if (ime.running) return (int32_t)0x80BC0003;                                  /* BUSY */
+-    memset(&ime,0,sizeof(ime));
+-    ime.buffer=param->buffer; ime.max_length=param->max_length; ime.running=1;
+-    char initial[512], prompt[256];
+-    utf16_to_utf8(param->buffer,param->max_length,initial,sizeof(initial));
+-    utf16_to_utf8(param->title,128,prompt,sizeof(prompt));
+-    const char *preset=getenv("BB_IME_TEXT");
+-    if (preset) { ime_complete(0,preset); return 0; }
+-    /* An empty field starts with the player name (launcher) or "Hunter": a controller alone
+-     * can accept it (the port has no on-screen keyboard). */
+-    const char *name=getenv("BB_USER_NAME");
+-    const char *start=initial[0] ? initial : name && *name ? name : "Hunter";
+-    if (!bbgpu_text_input_begin(start,prompt[0] ? prompt : "Text")) ime_complete(0,start);
+-    else printf("Runtime: ImeDialog opened: shown on screen; keyboard Enter or Cross accepts, Esc or Circle cancels\n");
+-    return 0;
+-}
+-static ABI int32_t ime_status(void) {
+-    if (ime.running) {
+-        char text[512];
+-        int state=bbgpu_text_input_poll(text,sizeof(text));
+-        if (state) ime_complete(state==1 ? 0 : 1,text);
+-    }
+-    return ime.running ? 1 : ime.finished ? 2 : 0; /* Running / Finished / None */
+-}
+-static ABI int32_t ime_result(uint32_t *result) {
+-    if (!ime.finished) return (int32_t)0x80BC0101; /* DIALOG NOT_FINISHED */
+-    if (result) *result=(uint32_t)ime.end_status;
+-    return 0;
+-}
+-static ABI int32_t ime_term(void) { memset(&ime,0,sizeof(ime)); return 0; }
++#include "runtime_ime.inc"
+ 
+ /* ---- Trophies: accepted locally, recorded in the log ---- */
+ static ABI int32_t trophy_context(int32_t *ctx,int32_t user,uint32_t label,uint64_t options) {
+diff --git a/src/runtime_text_input.c b/src/runtime_text_input.c
+new file mode 100644
+index 0000000..57a65fe
+--- /dev/null
++++ b/src/runtime_text_input.c
+@@ -0,0 +1,30 @@
++#include "runtime_text_input.h"
++#include "gpu/bbgpu.h"
++#include <pthread.h>
++static pthread_mutex_t text_lock=PTHREAD_MUTEX_INITIALIZER;
++static uint64_t sequence,active;
++static int cancelling;
++int runtime_text_begin(const char *initial,const char *title,uint32_t max_bytes,uint64_t *token){
++    if(!token)return -2;*token=0;pthread_mutex_lock(&text_lock);
++    /* A cancellation is a window-thread request. Do not let a late request
++     * cancel the next dialog; wait for the same window to acknowledge it. */
++    if(cancelling&&bbgpu_text_input_poll(NULL,0)!=0){active=0;cancelling=0;}
++    int rc=0;
++    if(active)rc=-3;
++    else if(!bbgpu_text_input_begin_limited(initial,title,max_bytes))rc=-4;
++    else {if(!++sequence)++sequence;active=sequence;*token=active;}
++    pthread_mutex_unlock(&text_lock);return rc;
++}
++int runtime_text_poll(uint64_t token,char *out,size_t size){
++    pthread_mutex_lock(&text_lock);int state=-7;
++    if(token&&token==active){
++        state=bbgpu_text_input_poll(out,size);
++        if(state){active=0;cancelling=0;}
++    }
++    pthread_mutex_unlock(&text_lock);return state;
++}
++void runtime_text_cancel(uint64_t token){
++    pthread_mutex_lock(&text_lock);
++    if(token&&token==active&&!cancelling){bbgpu_text_input_cancel();cancelling=1;}
++    pthread_mutex_unlock(&text_lock);
++}
+diff --git a/src/runtime_text_input.h b/src/runtime_text_input.h
+new file mode 100644
+index 0000000..9bff718
+--- /dev/null
++++ b/src/runtime_text_input.h
+@@ -0,0 +1,11 @@
++#ifndef BB_RUNTIME_TEXT_INPUT_H
++#define BB_RUNTIME_TEXT_INPUT_H
++#include <stdint.h>
++#include <stddef.h>
++/* Shared by game IME and native mods. 0 success; -3 busy; -4 unavailable.
++ * Poll: 0 pending, 1 accepted, 2 cancelled, -7 stale token. No borrowed input
++ * pointer survives begin. Cancellation keeps the lease until the UI acks it. */
++int runtime_text_begin(const char*,const char*,uint32_t,uint64_t*);
++int runtime_text_poll(uint64_t,char*,size_t);
++void runtime_text_cancel(uint64_t);
++#endif
+diff --git a/tests/test_ime_text.c b/tests/test_ime_text.c
+new file mode 100644
+index 0000000..5873a06
+--- /dev/null
++++ b/tests/test_ime_text.c
+@@ -0,0 +1,50 @@
++/* Exercise the same Orbis IME implementation included by runtime_services.c,
++ * and the real shared lease, with an explicit fake window backend. */
++#include "runtime.h"
++#include "gpu/bbgpu.h"
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <pthread.h>
++#include "runtime_text_input.h"
++#include "../src/runtime_ime.inc"
++#include "../src/runtime_text_input.c"
++#include <assert.h>
++static int window_available=1,window_state,window_cancel,cancel_count;
++static char window_text[4096];
++int bbgpu_text_input_begin_limited(const char*initial,const char*title,uint32_t max){
++    (void)max;assert(title);if(!window_available)return 0;
++    snprintf(window_text,sizeof window_text,"%s",initial);window_state=0;window_cancel=0;return 1;
++}
++int bbgpu_text_input_poll(char*out,uint64_t size){if(out&&size)snprintf(out,(size_t)size,"%s",window_text);return window_cancel?0:window_state;}
++void bbgpu_text_input_cancel(void){window_cancel=1;window_state=0;cancel_count++;}
++static void ack_cancel(void){assert(window_cancel);window_cancel=0;window_state=2;}
++int main(void){
++#ifdef _WIN32
++    _putenv("BB_IME_TEXT=");
++#else
++    unsetenv("BB_IME_TEXT");
++#endif
++    uint16_t buffer[32]={'O','l','d',0},title[]={'G','a','m','e',0};
++    ImeParam p={0};p.buffer=buffer;p.max_length=31;p.title=title;
++    uint64_t mod=0;uint32_t result=99;
++    assert(!ime_init(&p,NULL)&&ime_status()==1&&!strcmp(window_text,"Old"));
++    assert(runtime_text_begin("Setting","Mod",127,&mod)==-3);
++    strcpy(window_text,"Unicode \xe2\x9c\x93");window_state=1;
++    assert(ime_status()==2&&!ime_result(&result)&&result==0&&buffer[8]==0x2713);
++    assert(!runtime_text_begin("Setting","Mod",127,&mod));
++    assert(!ime_term()&&cancel_count==0); /* the old game's token cannot close Mod */
++    assert((uint32_t)ime_init(&p,NULL)==0x80BC0003&&!ime.running);
++    runtime_text_cancel(mod);assert(cancel_count==1);
++    assert((uint32_t)ime_init(&p,NULL)==0x80BC0003);ack_cancel();
++    assert(!ime_init(&p,NULL));assert(!ime_term()&&cancel_count==2);
++    assert(runtime_text_begin("Setting","Mod",127,&mod)==-3);ack_cancel();
++    assert(!runtime_text_begin("Setting","Mod",127,&mod));window_state=2;
++    assert(runtime_text_poll(mod,NULL,0)==2);
++    assert(!ime_init(&p,NULL));window_state=2;
++    assert(ime_status()==2&&!ime_result(&result)&&result==1&&buffer[8]==0x2713);
++    assert(!ime_term());window_available=0;
++    assert(!ime_init(&p,NULL)&&ime_status()==2&&!ime_result(&result)&&result==0);
++    assert(!ime_term());
++    puts("actual game IME: UTF-16 result, cancellation, no-window fallback and exclusion with mod dialogs: OK");return 0;
++}
+diff --git a/tests/test_text_input.c b/tests/test_text_input.c
+new file mode 100644
+index 0000000..5337a90
+--- /dev/null
++++ b/tests/test_text_input.c
+@@ -0,0 +1,45 @@
++/* Actual shared lease service with an explicit fake window-thread ack. */
++#include "runtime_text_input.h"
++#include <assert.h>
++#include <stdio.h>
++#include <string.h>
++#include <pthread.h>
++static int available=1,state,cancel_pending,cancels;
++static char text[4096];
++int bbgpu_text_input_begin_limited(const char*initial,const char*title,uint32_t max){
++    assert(title&&(!max||strlen(initial)<=max));if(!available)return 0;
++    snprintf(text,sizeof text,"%s",initial);state=0;cancel_pending=0;return 1;
++}
++void bbgpu_text_input_cancel(void){state=0;cancel_pending=1;cancels++;}
++int bbgpu_text_input_poll(char*out,uint64_t size){if(out&&size)snprintf(out,(size_t)size,"%s",text);return cancel_pending?0:state;}
++static void ack(void){assert(cancel_pending);cancel_pending=0;state=2;}
++static void *contend(void *out){uint64_t *token=out;int rc=runtime_text_begin("","Concurrent",127,token);assert(rc==0||rc==-3);return NULL;}
++int main(void){
++    uint64_t game,mod,next;char result[4096];
++    assert(!runtime_text_begin("Hunter","Game IME",0,&game));
++    assert(runtime_text_begin("Setting","Mod dialog",127,&mod)==-3&&mod==0);
++    runtime_text_cancel(game);assert(cancels==1);
++    state=1; /* an Enter event already in flight is not a cancellation ack */
++    assert(runtime_text_begin("Setting","Mod dialog",127,&mod)==-3);
++    ack();assert(!runtime_text_begin("Setting","Mod dialog",127,&mod)&&mod!=game);
++    runtime_text_cancel(game);assert(cancels==1); /* late old cancel is harmless */
++    assert(runtime_text_poll(game,result,sizeof result)==-7);
++    assert(runtime_text_poll(mod,result,sizeof result)==0&&!strcmp(result,"Setting"));
++    strcpy(text,"Unicode \xe2\x9c\x93");state=1;
++    assert(runtime_text_poll(mod,result,sizeof result)==1&&!strcmp(result,text));
++    assert(!runtime_text_begin("","Next",127,&next));
++    runtime_text_cancel(mod);assert(cancels==1);
++    runtime_text_cancel(next);assert(cancels==2);ack();
++    available=0;assert(runtime_text_begin("","Unavailable",127,&next)==-4&&next==0);available=1;
++    for(int i=0;i<20;i++){
++        assert(!runtime_text_begin("","Reload",127,&game));runtime_text_cancel(game);
++        assert(runtime_text_begin("","Replacement",127,&mod)==-3);ack();
++        assert(!runtime_text_begin("","Replacement",127,&mod));runtime_text_cancel(game);
++        state=1;assert(runtime_text_poll(mod,result,sizeof result)==1);
++    }
++    pthread_t threads[8];uint64_t tokens[8]={0};
++    for(int i=0;i<8;i++)assert(!pthread_create(&threads[i],NULL,contend,&tokens[i]));
++    int winners=0;for(int i=0;i<8;i++){assert(!pthread_join(threads[i],NULL));if(tokens[i]){winners++;next=tokens[i];}}
++    assert(winners==1);runtime_text_cancel(next);ack();
++    puts("shared text lease: game/mod exclusion, deferred cancellation ack, stale tokens, 20 reloads and concurrent begin: OK");return 0;
++}

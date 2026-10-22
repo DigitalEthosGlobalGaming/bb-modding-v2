@@ -45,6 +45,11 @@ removing only that lock. Reports identify unsupported formats and failed scripts
 Failures produce a nonzero exit code; a finished pass does not establish decompiler
 semantic equivalence.
 
+After successful decompilation/catalog generation, setup also creates deterministic
+annotated script references and a searchable index in `game-unpacked/annotated`.
+Run `.\bb.ps1 annotate` to refresh these independently. See
+[script references](SCRIPT-REFERENCES.md) for evidence limits and optional placement links.
+
 Raw extraction caching checks file size/mtime, while new writes and catalog inputs are
 hashed. It is a resume optimisation, not a forensic integrity proof. To regenerate after
 changing the selected game or extraction mode, use a separate checkout or preserve and

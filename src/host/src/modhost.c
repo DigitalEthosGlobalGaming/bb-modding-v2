@@ -60,6 +60,8 @@ void modhost_destroy(modhost *h) {
     mh_deferred_flush(h);
     plat_mutex_unlock(h->run_lock);
     free_inbox(h);
+    for (size_t i = 0; i < h->nmods; i++) mh_settings_free(&h->mods[i]);
+    mh_ui_layers_free(h);
     free(h->mods);
     free(h->vfs);
     plat_mutex_free(h->req_lock);
@@ -108,7 +110,7 @@ static void run_requests(modhost *h) {
 
 /* ---- Queued events (network threads -> sync point) ----------------------- */
 
-static void enqueue(modhost *h, mh_in_kind kind, uint64_t peer, uint64_t a, uint64_t b, int flag,
+void mh_enqueue(modhost *h, mh_in_kind kind, uint64_t peer, uint64_t a, uint64_t b, int flag,
                     const void *data, size_t len) {
     uint8_t *copy = NULL;
     if (len) {
@@ -183,6 +185,19 @@ static void drain_inbox(modhost *h) {
         case MH_IN_SESSION_END: session_end(h); break;
         case MH_IN_PEER_JOIN: peer_join(h, e->peer); break;
         case MH_IN_PEER_LEAVE: peer_leave(h, e->peer); break;
+        case MH_IN_UI_ACTION: mh_ui_action_deliver(h, (uint32_t)e->a); break;
+        case MH_IN_SETTING: {
+            typedef struct { char id[MH_NAME]; bbm_setting_event ev; } setting_blob;
+            if (e->len == sizeof(setting_blob)) {
+                const setting_blob *b = (const void *)e->data;
+                mh_entry *t = mh_find(h, b->id);
+                if (t && t->inst && t->state == MODHOST_ACTIVE) {
+                    bbm_event ev = {BBM_EV_SETTING_CHANGED, 0, 0, 0, &b->ev, sizeof b->ev};
+                    mh_dispatch_event_to(t->inst, &ev);
+                }
+            }
+            break;
+        }
         case MH_IN_EVENT: {
             bbm_event ev = {(uint32_t)e->flag, 0, e->a, e->b, e->data, e->len};
             mh_dispatch_event(h, &ev);
@@ -194,16 +209,16 @@ static void drain_inbox(modhost *h) {
 }
 
 void modhost_post_event(modhost *h, uint32_t type, uint64_t a, uint64_t b) {
-    enqueue(h, MH_IN_EVENT, 0, a, b, (int)type, NULL, 0);
+    mh_enqueue(h, MH_IN_EVENT, 0, a, b, (int)type, NULL, 0);
 }
 void modhost_session_begin(modhost *h, uint64_t local_peer, uint64_t owner_peer, int dev_session) {
-    enqueue(h, MH_IN_SESSION_BEGIN, 0, local_peer, owner_peer, dev_session, NULL, 0);
+    mh_enqueue(h, MH_IN_SESSION_BEGIN, 0, local_peer, owner_peer, dev_session, NULL, 0);
 }
-void modhost_session_end(modhost *h) { enqueue(h, MH_IN_SESSION_END, 0, 0, 0, 0, NULL, 0); }
-void modhost_peer_join(modhost *h, uint64_t peer) { enqueue(h, MH_IN_PEER_JOIN, peer, 0, 0, 0, NULL, 0); }
-void modhost_peer_leave(modhost *h, uint64_t peer) { enqueue(h, MH_IN_PEER_LEAVE, peer, 0, 0, 0, NULL, 0); }
+void modhost_session_end(modhost *h) { mh_enqueue(h, MH_IN_SESSION_END, 0, 0, 0, 0, NULL, 0); }
+void modhost_peer_join(modhost *h, uint64_t peer) { mh_enqueue(h, MH_IN_PEER_JOIN, peer, 0, 0, 0, NULL, 0); }
+void modhost_peer_leave(modhost *h, uint64_t peer) { mh_enqueue(h, MH_IN_PEER_LEAVE, peer, 0, 0, 0, NULL, 0); }
 void modhost_net_receive(modhost *h, uint64_t peer, const void *frame, size_t len) {
-    if (len) enqueue(h, MH_IN_NET, peer, 0, 0, 0, frame, len);
+    if (len) mh_enqueue(h, MH_IN_NET, peer, 0, 0, 0, frame, len);
 }
 
 /* ---- The sync point ------------------------------------------------------- */
@@ -313,6 +328,7 @@ void modhost_frame(modhost *h) {
     h->gameplay_in_frame = 0;
     run_requests(h); /* unloads queued by a crash in this frame */
     mh_pad_tick(h, plat_now_ms());
+    mh_ui_layers_tick(h);
     mh_deferred_tick(h);
     plat_mutex_unlock(h->run_lock);
 }

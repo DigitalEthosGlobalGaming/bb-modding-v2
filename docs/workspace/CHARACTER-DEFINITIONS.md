@@ -90,11 +90,11 @@ names refresh at most every 250 ms outside the draw callback.
 
 ## Data and validation
 
-- JSON: `../bloodborne_pc/third_party/bbmod/sdk/rust/bbmod/data/characters.json`
-- Generator: `../generate-character-catalog.py` (`--check` verifies output)
+- JSON: `../../sdk/rust/bbmod/local-data/characters.json`
+- Generator: `src/scripts/generate_catalogs.py --game GAME_ASSETS` from the toolkit root
 - Definitions: exact NPC IDs joined to English NPC-name text by nameId.
 - Internal names: bounded UTF-16 reads from parameter row-name strings.
-- JSON records source hashes, game version, language and ID meaning.
+- Generated output remains private under the SDK local-data directory.
 
 Three Python tests cover source/generated agreement, missing text, row-name
 bounds and escaping. SDK tests cover known/unknown rows, shared names, indexes

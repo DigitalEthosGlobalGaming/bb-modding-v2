@@ -1,7 +1,8 @@
 # Rust SDK (`sdk/rust/bbmod`)
 
 Start with `bb.ps1 new-mod`; MODDING.md has the toolkit workflow.
-Local catalogs require the `local-catalogs` Cargo feature. Newer services require matching runtime backends; see RUNTIME.md.
+Local catalogs require the `local-catalogs` Cargo feature. Optional private curated
+references are reapplied from hash-verified `.local/reference-inputs/catalogs` when present. Newer services require matching runtime backends; see RUNTIME.md.
 For this workspace, start with the maintained
 [developer documentation](workspace/README.md), including its
 example `AGENTS.md` and two shared-hook test mods.
@@ -103,7 +104,7 @@ These appended ABI functions return unsupported on older hosts.
 
 `CombatHooks::on_attack` dispatches the existing limited behavior observations;
 `supports_hit()` is false. See [content SDK details](workspace/content-sdk.md)
-and [the three content examples](../../../../mods/item-examples/README.md).
+and [the three content examples](../../modding/mods/item-examples/README.md).
 
 ## Optional USB grip-haptics extension
 
@@ -152,3 +153,32 @@ baseline NPC metadata, including optional display/description text and internal
 row names. `CharacterExt::definition`, snapshot `by_definition`/`by_handle`, and
 `CharacterRef` connect definitions to read-only observed instances. See
 [definitions and ID semantics](workspace/CHARACTER-DEFINITIONS.md).
+
+## Persistent settings and data: `bbmod::store`
+
+Any mod can keep settings and private data across runs with `bbmod::store::Store`. It is
+pure `std` (no host ABI change), so it works with an already-installed runtime.
+
+| Where | What |
+|---|---|
+| `<bbmods>/../config/<mod-id>.toml` | Settings. The same user-override file the host reads for `cx.config`, so saved values are read back by `cx.config("section.key")` on the next load. |
+| `<bbmods>/../mod-data/<mod-id>/` | Private blobs (`read_blob` / `write_blob` / `remove_blob`). |
+
+```rust
+let mut store = bbmod::store::Store::open(cx)?;          // id from mod.toml, dir from BB_CODEMODS_DIR
+let level: u32 = store.get_parse("difficulty", "level").unwrap_or(2);
+store.set("difficulty", "level", 3);                     // numbers/bools; set_str quotes text
+// every frame:
+store.tick()?;                                           // saves after the value settles (1 s)
+if store.poll_external()? { /* a tool or editor changed the file: re-read values */ }
+```
+
+* The file is plain TOML (`[section]`, `key = value`). Changing a value preserves comments,
+  unrelated keys and other sections; an unchanged value does not rewrite the file.
+* Writes are atomic (temp file then rename) and debounced, so dragging a slider is cheap.
+  Pending changes are also written when the `Store` is dropped (mod unload).
+* `poll_external` lets another UI or a text editor change settings live. It does nothing
+  while local changes are unsaved, and it ignores the store's own writes.
+* Ids and blob names are limited to letters, digits, `.`, `_`, `-` (no path separators,
+  no leading dot). `Store::open_at(root, id)` uses an explicit root, e.g. for tests.
+* Values are not secret and not cross-checked: treat the file as user input.

@@ -46,6 +46,8 @@ static bbm_status valid(bbm_handle m,const bbm_menu_node *n) {
     if(n->kind==BBM_MENU_LINK){if(!path(n->target))return BBM_ERR_ARG;}
     else if(n->target[0])return BBM_ERR_ARG;
     if(n->kind==BBM_MENU_TOGGLE&&(n->value<0||n->value>1))return BBM_ERR_ARG;
+    /* Only a manager may replace the pause menu's built-in Mods entry. */
+    if(!strcmp(n->parent,"game.system")&&!strcmp(n->key,"mods-root")&&(n->kind!=BBM_MENU_ACTION||!m->entry->m.manage))return BBM_ERR_STATE;
     char self[192];snprintf(self,sizeof self,"%s/%s",m->entry->m.id,n->key);
     if(n->kind==BBM_MENU_SCREEN&&!strcmp(self,n->parent))return BBM_ERR_CONFLICT;
     return BBM_OK;

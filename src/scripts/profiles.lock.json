@@ -126,6 +126,31 @@
       "rva": 28114736,
       "length": 20,
       "sha256": "b3aeb3e5ec26ded23babdec1fcfcc1f860ca100c3f7c3c16157f4d339bc4314d"
+    },
+    {
+      "rva": 28111552,
+      "length": 20,
+      "sha256": "f29fbeb1245e8d930ce0d63aad3f36d63f17a093318ae5de7d633f7e67226044"
+    },
+    {
+      "rva": 28112560,
+      "length": 20,
+      "sha256": "9736de42f75d0b33b58df413c60dcbe468e70d9eb0eee04ca2a4d9f240cce7e8"
+    },
+    {
+      "rva": 28113696,
+      "length": 20,
+      "sha256": "00731400a927051ad5e8b2cf0f4fd20647c9ef23391712a69c44a7660090a514"
+    },
+    {
+      "rva": 28116704,
+      "length": 20,
+      "sha256": "597cd7eacd7fa2fcc5807e49e9a96c7a9d847b50e1d6cf610c257473650d292e"
+    },
+    {
+      "rva": 28122960,
+      "length": 20,
+      "sha256": "7221b098247ab43e8b7be2a84bf7009c8508b133a092baf877288be90e2544ac"
     }
   ]
 }

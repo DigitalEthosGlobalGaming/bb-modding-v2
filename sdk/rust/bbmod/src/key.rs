@@ -26,3 +26,21 @@ pub const KP5: i32 = 93; pub const KP6: i32 = 94; pub const KP7: i32 = 95; pub c
 pub const KP9: i32 = 97; pub const KP0: i32 = 98;
 pub const LCTRL: i32 = 224; pub const LSHIFT: i32 = 225; pub const LALT: i32 = 226;
 pub const RCTRL: i32 = 228; pub const RSHIFT: i32 = 229; pub const RALT: i32 = 230;
+
+/// Keys offered by pickers (menus that cannot capture a raw key press), with display names.
+pub const PICKER: &[(i32, &str)] = &[
+    (F1, "F1"), (F2, "F2"), (F3, "F3"), (F4, "F4"), (F5, "F5"), (F6, "F6"),
+    (F7, "F7"), (F8, "F8"), (F9, "F9"), (F10, "F10"), (F11, "F11"), (F12, "F12"),
+    (HOME, "Home"), (END, "End"), (PAGE_UP, "Page Up"), (PAGE_DOWN, "Page Down"), (DELETE, "Delete"),
+    (KP1, "Keypad 1"), (KP2, "Keypad 2"), (KP3, "Keypad 3"), (KP4, "Keypad 4"), (KP5, "Keypad 5"),
+    (KP6, "Keypad 6"), (KP7, "Keypad 7"), (KP8, "Keypad 8"), (KP9, "Keypad 9"), (KP0, "Keypad 0"),
+    (A, "A"), (B, "B"), (C, "C"), (D, "D"), (E, "E"), (F, "F"), (G, "G"), (H, "H"), (I, "I"), (J, "J"),
+    (K, "K"), (L, "L"), (M, "M"), (N, "N"), (O, "O"), (P, "P"), (Q, "Q"), (R, "R"), (S, "S"), (T, "T"),
+    (U, "U"), (V, "V"), (W, "W"), (X, "X"), (Y, "Y"), (Z, "Z"),
+    (NUM1, "1"), (NUM2, "2"), (NUM3, "3"), (NUM4, "4"), (NUM5, "5"), (NUM6, "6"), (NUM7, "7"), (NUM8, "8"), (NUM9, "9"), (NUM0, "0"),
+];
+
+/// Display name for a scancode, "Key <n>" when it is not in the picker list.
+pub fn name(scancode: i32) -> String {
+    PICKER.iter().find(|(k, _)| *k == scancode).map_or_else(|| format!("Key {scancode}"), |(_, n)| (*n).to_string())
+}

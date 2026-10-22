@@ -31,3 +31,34 @@ Enable the SDK dependency's local-catalogs Cargo feature to use locally generate
 Without it, catalog lookups return unknown and the SDK builds without game data.
 Read RUST_SDK.md, ABI.md and sdk/include/bbmod.h for exact interfaces.
 Synthetic tests establish API/ownership behavior, not gameplay semantics.
+
+Retained workspace projects stay at `../modding/mods/`; the independent
+`../modding/bb-modding-adaptive-triggers/` repository retains its pinned Git SDK.
+Build an explicit project from this toolkit without deployment:
+
+```powershell
+.\bb.ps1 build-mod ../modding/mods/character-observer --test
+.\bb.ps1 build-mod ../modding/mods/hooks-testing-mod --test
+.\bb.ps1 build-mod ../modding/mods/adaptive-triggers
+```
+
+Local retained projects depend directly on `sdk/rust/bbmod` with `local-catalogs`.
+This installation retains its curated names/team dictionaries in ignored
+`.local/reference-inputs/catalogs`. `generate_catalogs.py` reapplies those snapshots
+only after verifying every recorded payload hash, the CUSA03173/1.09 version and
+all five original game-source fingerprints. Their original source/licence records
+remain alongside them. Fresh installations without those private inputs explicitly
+report unavailable curated names; no private dictionary ships in public source.
+Set `MSYS2_ROOT`, `WINPYTHON`, or `BBPORT_SOURCE` to override toolchain/runtime source
+choices. Native adaptive backend tests require the prepared canonical port checkout.
+Observer script references use `game-unpacked/decompiled`; configure the mod's
+script root or `BB_REFERENCE_DIR` to override it. Rebuild its private links with:
+
+```powershell
+pwsh -File src/scripts/export-map-script-placements.ps1 -Output ../modding/mods/character-observer/data/map-placements.json
+.\bb.ps1 script-links --mod ../modding/mods/character-observer
+```
+
+The generator joins raw maps/PARAM/LUAINFO with the separate decompiled source
+folder. It writes only the selected mod's generated table and provenance. These
+are baseline associations; they do not prove a live AI call or script binding.

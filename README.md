@@ -4,9 +4,9 @@ A Windows development toolkit for native bbmod DLLs and Bloodborne content mods.
 Clone the source, select your own game and installed port, and generate your private
 reference workspace. Game files and recovered game code are not distributed here.
 
-The latest local native-menu/text-entry work is consolidated here. See
-[development consolidation](docs/CONSOLIDATION.md) for the preserved port WIP,
-legacy tools/references and separate mod project locations.
+Framework, SDK and development workflows are consolidated here. See
+[development consolidation](docs/CONSOLIDATION.md) for the active project locations,
+verified private history archives and cleanup record.
 
 ## Start
 
@@ -32,7 +32,7 @@ smaller extraction, reruns and recovery.
 .\bb.ps1 doctor
 .\bb.ps1 smithbox
 .\bb.ps1 new-mod me.my-mod "My Mod"
-cargo build --manifest-path mods/me.my-mod/Cargo.toml --release
+.\bb.ps1 build-mod mods/me.my-mod --test
 ```
 
 Setup does not deploy anything. A stock runtime does not gain framework support merely
@@ -60,9 +60,11 @@ files; without them, the affected native services fail their compatibility check
 
 ## Guides
 
+- [How Bloodborne works: game design and interaction patterns](docs/game/README.md)
 - [Setup and troubleshooting](docs/SETUP.md)
 - [Native mods and current SDK](docs/MODDING.md), [Rust API](docs/RUST_SDK.md)
 - [Content overlays](docs/CONTENT.md)
+- [Automatic script annotations and search](docs/SCRIPT-REFERENCES.md)
 - [Runtime build/deploy/rollback](docs/RUNTIME.md)
 - [Agent starter prompt](docs/STARTER-PROMPT.md)
 - [Source provenance and publication boundary](docs/PROVENANCE.md)
@@ -77,6 +79,24 @@ python -m unittest discover -s src/tests/toolkit -v
 cargo test --workspace --locked
 ```
 
-Compatibility checks and synthetic tests are not gameplay validation. The pinned runtime
-integration provides the older overlay/input/reload/override bridge; newer SDK services
-still require matching port backends. Inspector/Openborne schemas are excluded.
+The pinned runtime integration includes overlay/tables, shared input, reload, overrides,
+pad effects/USB haptics and shared game/mod text entry. Native services remain gated by
+matching profiles and capabilities. Compatibility checks and synthetic tests are not
+gameplay validation. Inspector/Openborne schemas are excluded.
+
+## Existing local projects
+
+Retained projects remain under `../modding/mods/` and the independent adaptive-trigger
+repository under `../modding/bb-modding-adaptive-triggers/`. Their toolkit dependencies
+point here; duplicate copies formerly under `mods/` have been archived and removed.
+New projects can use `mods/` or their own repository. Run daily workflows from here:
+
+```powershell
+.\bb.ps1 build-mod ../modding/mods/character-observer --test
+.\bb.ps1 content verify
+.\bb.ps1 native-assets
+.\bb.ps1 script-links --mod ../modding/mods/character-observer --check
+.\bb.ps1 map-placements --output .local/map-placements.json
+```
+
+PowerShell 7 is preferred for build helpers and required for map placement export.

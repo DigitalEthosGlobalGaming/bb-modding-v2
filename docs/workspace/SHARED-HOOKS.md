@@ -3,7 +3,7 @@
 # Shared services and typed hooks
 
 ABI 1.4 adds a typed player service. Consult the actual
-[`gameplay.rs`](../bloodborne_pc/third_party/bbmod/sdk/rust/bbmod/src/gameplay.rs)
+[`gameplay.rs`](../../sdk/rust/bbmod/src/gameplay.rs)
 for signatures. The service validates the supported game layout and resolves the
 current player; callers do not repeat heap scans or retain session addresses.
 
@@ -84,7 +84,7 @@ the unloading mod's contribution. `panel` remains available for independent wind
 
 The standard shared windows in this release are `bbmod.dashboard` for status and
 `bbmod.settings` for controls. Inspector and Adaptive Triggers use both; the
-[UI example](../bloodborne_pc/third_party/bbmod/examples/ui-examples/README.md)
+[UI example](../examples/ui-examples/README.md)
 demonstrates identical labels, versioned state transfer and dynamic removal:
 
 ```rust

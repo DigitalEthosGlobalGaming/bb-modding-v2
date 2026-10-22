@@ -1,3 +1,4 @@
+mod browser;
 use bbmod::{Cx, Event, Id, Mod, Result, Version};
 use bbmod::native_menu::{self as menu,Change,Kind,Node,controls::{Choice,Integer,Text}};
 use std::{cell::RefCell, rc::Rc};
@@ -59,7 +60,7 @@ fn sync_rows(cx:&mut Cx,rows:&mut[(Id,Node)],nodes:Vec<Node>)->Result<()> {
     }Ok(())
 }
 fn dashboard(v:&Values,notice:&str)->Vec<Node> {
-    let mut screen=Node::new(Kind::Screen,"dashboard",menu::MODS,"Shared UI Examples");
+    let mut screen=Node::new(Kind::Screen,"dashboard",menu::MODS,"UI-Examples-Mod");
     screen.help="Native dashboard and removable settings. Values belong to this example only; reload preserves them.".into();
     let mut summary=Node::new(Kind::Info,"overview",DASHBOARD,&clipped(&v.label,127));
     if summary.label.is_empty(){summary.label="(Empty label)".into();}
@@ -117,8 +118,21 @@ impl Settings {
         if let Some(c)=&mut self.label{if c.value()!=v.label{c.set(cx,&v.label)?;}}Ok(())
     }
 }
-#[derive(Default)]
-struct State {values:Values,rows:Vec<(Id,Node)>,settings:Option<Settings>,notice:String}
+struct State {values:Values,rows:Vec<(Id,Node)>,settings:Option<Settings>,notice:String,
+    browser:browser::Browser,browser_head:Vec<(Id,Node)>,browser_entries:Vec<(Id,Node)>,browser_category:usize}
+impl Default for State{fn default()->Self{Self{values:Values::default(),rows:vec![],settings:None,notice:String::new(),
+    browser:browser::Browser::new(),browser_head:vec![],browser_entries:vec![],browser_category:usize::MAX}}}
+impl State {
+    fn sync_browser(&mut self,cx:&mut Cx)->Result<()> {
+        let mut nodes=self.browser.nodes(DASHBOARD);let entries=nodes.split_off(3);
+        if self.browser_head.is_empty(){register_rows(cx,nodes,&mut self.browser_head)?;}else{sync_rows(cx,&mut self.browser_head,nodes)?;}
+        if self.browser_category!=self.browser.category(){
+            while let Some((id,_))=self.browser_entries.last(){cx.release(*id)?;self.browser_entries.pop();}
+            register_rows(cx,entries,&mut self.browser_entries)?;self.browser_category=self.browser.category();
+        }else{sync_rows(cx,&mut self.browser_entries,entries)?;}
+        Ok(())
+    }
+}
 impl State {
     fn refresh(&mut self,cx:&mut Cx)->Result<()> {
         if self.values.settings_visible&&self.settings.is_none(){
@@ -140,6 +154,7 @@ impl State {
             }
             settings.sync(cx,&self.values)?;
         }
+        self.sync_browser(cx)?;
         sync_rows(cx,&mut self.rows,dashboard(&self.values,&self.notice))
     }
 }
@@ -164,6 +179,7 @@ impl Mod for UiExamples {
             match event.key.as_str(){"settings-visible"=>s.values.settings_visible=event.value,"enabled"=>s.values.enabled=event.value,_=>{}}
         }
         if event.change==Change::Activated{
+            if browser::Browser::is_category_key(&event.key){s.browser.next_category();}else{s.browser.activate(&event.key);}
             match event.key.as_str(){
                 "dashboard-increment"=>s.values.dashboard_count=s.values.dashboard_count.saturating_add(1),
                 "settings-increment"=>s.values.settings_count=s.values.settings_count.saturating_add(1),

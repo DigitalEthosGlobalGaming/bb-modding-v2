@@ -20,6 +20,10 @@ extern "C" {
 extern "C" {
 __thread sigjmp_buf* runtime_fault_recover;
 int bbgpu_overlay_captures_input(void) { return 0; }
+int bbgpu_text_input_begin_limited(const char*, const char*, uint32_t) { return 0; }
+int bbgpu_text_input_poll(char*, uint64_t) { return 0; }
+void bbgpu_text_input_cancel(void) {}
+int runtime_pad_haptics(void*, const float*, uint32_t) { return BBM_ERR_UNSUPPORTED; }
 static bool keys[512];
 const bool* SDL_GetKeyboardState(int* n) { if (n) *n = 512; return keys; }
 uint32_t SDL_WasInit(uint32_t) { return 1; }

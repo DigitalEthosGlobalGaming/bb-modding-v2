@@ -52,10 +52,10 @@ class ToolkitTests(unittest.TestCase):
             saved=backup/'mod.dll';saved.write_bytes(b'old')
             t.save(backup/'manifest.json',{'runtime':str(runtime),'files':[{'path':'mod.dll','before':t.sha(saved),'after':t.sha(dest)}]})
             dest.write_bytes(b'user change')
-            with patch.object(t,'ROOT',root),self.assertRaises(ValueError):t.rollback(backup)
+            with patch.object(t,'ROOT',root),patch.object(t,'require_game_closed'),self.assertRaisesRegex(ValueError,'Installed file changed'):t.rollback(backup)
             self.assertEqual(dest.read_bytes(),b'user change')
             dest.write_bytes(b'new')
-            with patch.object(t,'ROOT',root):t.rollback(backup)
+            with patch.object(t,'ROOT',root),patch.object(t,'require_game_closed'):t.rollback(backup)
             self.assertEqual(dest.read_bytes(),b'old')
 
 if __name__=='__main__':unittest.main()

@@ -144,6 +144,7 @@ static int manifest_kv(void *user, const char *sec, const char *key, char *raw) 
         else if (!strcmp(key, "abi")) mh_strlcpy(m->abi, v, sizeof m->abi);
         else if (!strcmp(key, "dll")) mh_strlcpy(m->dll, v, sizeof m->dll);
         else if (!strcmp(key, "runtime")) mh_strlcpy(m->runtime, v, sizeof m->runtime);
+        else if (!strcmp(key, "manage")) m->manage = truthy(v);
     } else if (!strcmp(sec, "load")) {
         if (!strcmp(key, "hot_reload")) m->hot_reload = truthy(v);
         else if (!strcmp(key, "enabled")) m->enabled = truthy(v);

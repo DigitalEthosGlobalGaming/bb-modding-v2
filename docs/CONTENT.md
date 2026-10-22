@@ -23,3 +23,18 @@ do not commit whole modified stock archives to this toolkit.
 Smithbox handles editing its supported native formats through its own project workflow.
 The toolkit reference extractor expands DCX/BND4; it leaves paired archives and opaque
 assets at source. Decompiled Lua is inspection output, not proof of round-trip recompilation.
+
+Retained item examples remain in the separate workspace projects. From the toolkit:
+
+```powershell
+.\bb.ps1 build-mod ../modding/mods/item-examples --test
+```
+
+The build helper uses this toolkit's compiler, SDK and `.local/content-workspace`.
+Existing allocation IDs were retained during cleanup. Preserve this workspace's
+`item-ids.lock.json`; deleting it risks assigning new IDs to already saved items.
+Native menu overlays can be generated separately with `bb.ps1 native-assets`.
+Its default output is `.local/native-ui-assets`; stock menu files are read only.
+`src/scripts/hud_layout.py` retains its upstream GPL-2.0-or-later notice and can
+produce an explicit ultrawide overlay with `GAME --out OUTPUT --canvas-width WIDTH`.
+Generated overlays are private game-derived outputs and have not been gameplay validated.

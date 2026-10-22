@@ -1,60 +1,29 @@
-> Historical workspace notes. Paths and validation describe the original workspace; use ../SETUP.md for this toolkit. Inspector and bulk recovered tables are excluded.
-
 # Validation and evidence
 
-From the workspace root:
+From the toolkit root:
 
 ```powershell
-. .\modding\dev-env.ps1
-cargo test --manifest-path .\modding\bloodborne_pc\third_party\bbmod\Cargo.toml -p bbmod
-.\modding\mods\hooks-testing-mod\build.ps1 -Test
+.\src/scripts/test.ps1 -Native
+.\bb.ps1 build-mod ../modding/mods/hooks-testing-mod --test
+.\bb.ps1 build-mod ../modding/mods/item-examples --test
+.\bb.ps1 build-mod ../modding/mods/character-observer --test
 ```
 
-The example build packages two DLLs without deploying. Its Rust test invocation
-checks compilation (the sample crates have no unit tests), then its native harness
-loads both real DLLs against synthetic player memory. The harness exercises shared
-player/equipment observations, typed item-use/attack/inventory payload fanout, same-label widget
-routing, cross-mod scale claims, isolated unload
-and 20 reloads without duplicate subscribers. It never attaches to a running game.
-The item-use/attack payload tests bypass their native producers; the producers have
-separate native hook tests and need in-game observation before claiming live validation.
-The inventory summary dispatch test likewise exercises subscriber decoding rather
-than the inventory resolver; its own synthetic memory tests cover that resolver.
+The toolkit checks Python helpers, the Rust workspace, the native host tests and
+publication boundaries. The external hook harness loads both real DLLs against
+synthetic player memory, exercises service fanout and performs 20 reloads.
+The item diagnostic harness loads its real DLL and compiled content overlay and
+performs ten reloads. These checks never attach to a running game and do not
+establish native producer or gameplay behavior. Inspector is excluded.
 
-For the shared UI example:
-
-```powershell
-.\modding\bloodborne_pc\third_party\bbmod\examples\ui-examples\build.ps1 -Test
-```
-
-This runs state-format unit tests and an actual DLL harness with fake widgets,
-including another owner in the same slot and 20 release/re-add/reload cycles.
-
-After building Inspector, Adaptive Triggers and UI Examples, run their combined
-shared-backend smoke test:
-
-```powershell
-.\modding\test-shared-ui-mods.ps1
-```
-
-This loads all three actual DLLs with temporary manifests and no Inspector control
-directory. The fake backend enables scope IDs and expanding headers, so it tests
-the shared UI path rather than legacy panel fallback. It checks six sections in
-two windows, five Inspector/Adaptive reloads each, and UI Examples unloading to
-leave four sections before loading back to six. Widgets return no actions, no
-scans are requested, and pad output is an unsupported dummy backend. This does
-not attach to the game or claim visual/gameplay validation.
-
-The host's shared-service test separately exercises both owners, identity changes,
-modifier composition, stale expected values, unload/reload and unsupported layouts.
-Run the native CTest suite from the configured `out/native-framework` build after
-compiling it. Use `ctest -N` to inspect actual available test names rather than
-guessing targets. The full workspace verifier is `modding/verify-framework.ps1`.
+Private asset/reference tests are opt-in: set `BB_GAME_ROOT` to the selected
+`uroot` and `BB_OBSERVER_MOD` to the retained observer project before Python tests.
+See [VALIDATION.md](../VALIDATION.md) for actual evidence and limits.
 
 ## In-game acceptance procedure
 
 1. Install the matching built runtime with a rollback copy, then deploy the examples
-   with `build.ps1 -Deploy`. Start `modding/Play Modded Bloodborne.cmd` and load a
+   using the current deployment guide. Start the selected runtime and load a
    character. Both mods should appear in F1's Mods list and in `hooks.testing`.
 2. With experiments disabled, change HP or stamina through normal gameplay. Compare
    A and B log entries for the same previous/current snapshots. Counts can differ

@@ -35,3 +35,13 @@ files and common machine-specific paths. Review new source provenance manually: 
 filters cannot discover every copied text snippet or settle redistribution rights.
 Do not publish until the audit and that review pass. No remote repository or release is
 created by setup.
+
+## Cleanup provenance — 20 October 2026
+
+The current integration patch was regenerated from authored WIP changes against the
+pinned upstream commit in tools.lock.json. Historical source/Git state, licences and
+trial evidence are preserved privately in `.local/archive/source-history`; they are
+excluded from publication. Unique legacy reference metadata/tool settings were retained
+before duplicate trees were removed. Private curated labels remain optional hash-checked
+local inputs, rather than bundled tables. No recovered game code was imported into the
+public patch as part of this cleanup. Inspect new source manually before publication.

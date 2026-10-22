@@ -23,12 +23,13 @@ typedef struct live_view {
     uint64_t revision,content_hash,ids[MH_MENU_VISIBLE_ROWS];
     size_t count,page;
     int reset_focus;
+    unsigned trace_frames;
 } live_view;
 static int request_page(void*,int);
 static struct {
     uintptr_t base;
     char asset[MH_PATH],list_asset[MH_PATH];
-    uint32_t busy, enabled, used, live;
+    uint32_t busy, enabled, used, live, trace, component_trace_budget;
     uint64_t drops,generation;
     mh_menu_snapshot snapshot;
     bbm_menu_event events[MH_MENU_QUEUE];size_t count;
@@ -45,6 +46,28 @@ static struct {
 } bridge;
 static int enter(void){uint32_t zero=0;return __atomic_compare_exchange_n(&bridge.busy,&zero,1,0,__ATOMIC_ACQUIRE,__ATOMIC_RELAXED);}
 static void leave(void){__atomic_store_n(&bridge.busy,0,__ATOMIC_RELEASE);}
+/* Passive composition research uses existing hooks only. No movie methods,
+ * gameplay callbacks or additional native entry points are invoked. The budget
+ * bounds log traffic across VFS and UI threads; zero disables it completely. */
+static int component_trace_take(void){
+    uint32_t remaining=__atomic_load_n(&bridge.component_trace_budget,__ATOMIC_RELAXED);
+    while(remaining)if(__atomic_compare_exchange_n(&bridge.component_trace_budget,&remaining,remaining-1,0,__ATOMIC_RELAXED,__ATOMIC_RELAXED))return 1;
+    return 0;
+}
+static uintptr_t image_rva(uintptr_t address){
+    modhost *h=__atomic_load_n(&bridge.owner.host,__ATOMIC_ACQUIRE);
+    return h&&address>=bridge.base&&address-bridge.base<h->cfg.eboot_size?address-bridge.base:0;
+}
+static void trace_component_step(const char *label,uintptr_t step,uintptr_t type,uintptr_t factory){
+    if(!component_trace_take())return;
+    /* Factory descriptors are not assumed to have the command-row layout.
+     * Record two safe words as evidence, without dereferencing/calling them. */
+    uintptr_t words[2]={0};int readable=factory&&!plat_read_safe((void*)factory,words,sizeof words);
+    mh_log(bridge.owner.host,"bbmod.ui.components",BBM_LOG_INFO,
+        "step name=%s type=%llu step=%llx factory=%llx readable=%d word0_rva=%llx word1_rva=%llx",
+        label,(unsigned long long)type,(unsigned long long)step,(unsigned long long)factory,readable,
+        (unsigned long long)image_rva(words[0]),(unsigned long long)image_rva(words[1]));
+}
 static void wide(const char *s,uint16_t *out,size_t cap){
     size_t n=0;while(*s&&n+1<cap){unsigned c=(unsigned char)*s++;int k=0;
         if(c>=0xf0){c&=7;k=3;}else if(c>=0xe0){c&=15;k=2;}else if(c>=0xc0){c&=31;k=1;}
@@ -116,10 +139,94 @@ typedef struct native_ops {
     void (G *caption)(void*,int32_t,int32_t);
     void *(G *factory)(void*,void*,void*);
     void (G *copy)(void*,const void*);
-    void (G *refresh)(void*,void*);
+    void (G *list_count)(void*,int32_t);
+    int (G *list_focus)(void*,int32_t);
+    void (G *list_layout)(void*);
+    void (G *list_redraw)(void*);
+    void *(G *list_row)(void*,void*,int32_t);
+    int (G *list_ready)(void*,size_t);
     void (G *selection)(void*);
 } native_ops;
 static native_ops ops;
+/* Two different native return layouts. A row wraps a movie value at +0x28;
+ * it is not itself a movie value. Offsets follow the stock row constructor and
+ * its value getter. Both contain intrusive managed-value links. */
+typedef struct native_movie_value {
+    void **vt;
+    uintptr_t links[2];
+    void *interface;
+    uint32_t type,padding;
+    void *object;
+    uintptr_t extra;
+} native_movie_value;
+typedef struct native_movie_row {
+    void **vt;
+    uintptr_t links[3],owner;
+    native_movie_value value;
+} native_movie_row;
+_Static_assert(sizeof(native_movie_value)==0x38,"native movie value size");
+_Static_assert(offsetof(native_movie_row,value)==0x28,"native row value offset");
+_Static_assert(sizeof(native_movie_row)==0x60,"native row size");
+static void release_movie_value(native_movie_value *value){
+    if(value->interface&&(value->type&0x40)){
+        void **methods=*(void***)value->interface;
+        ((void(G*)(void*,void*,void*))methods[0x18/8])(value->interface,value->links,value->object);
+    }
+    value->interface=NULL;value->type=0;
+}
+/* Native actions can restart the entrance fade before the next widget frame.
+ * Hiding rows during that fade leaves them at zero alpha/offset when reused.
+ * Observe the currently displayed rows; do not resize until all have settled.
+ * No display or timeline setters are used. */
+static int G list_movie_ready(void *list,size_t count){
+    if(count>MH_MENU_VISIBLE_ROWS)return 0;
+    for(size_t slot=0;slot<count;slot++){
+        _Alignas(16) native_movie_row row={0};ops.list_row(&row,list,(int32_t)slot);
+        native_movie_value *value=&row.value;int ready=0;
+        if(value->interface&&(value->type&0x8f)){
+            _Alignas(16) unsigned char display[0x100]={0};double alpha=0;
+            void **methods=*(void***)value->interface;
+            int valid=((int(G*)(void*,void*,void*))methods[0xe0/8])(value->interface,value->object,display);
+            memcpy(&alpha,display+0x28,8);
+            ready=valid&&display[0xd6]&&alpha>=99.99;
+        }
+        release_movie_value(value);if(!ready)return 0;
+    }
+    return 1;
+}
+static void trace_movie_value(native_movie_value *value,const char *path,const char *phase,int slot){
+    if(!value->interface)return;
+    void **methods=*(void***)value->interface;
+    if(value->type&0x8f){
+        _Alignas(16) unsigned char display[0x100]={0};double fields[6];
+        int valid=((int(G*)(void*,void*,void*))methods[0xe0/8])(value->interface,value->object,display);
+        memcpy(fields,display,sizeof fields);
+        mh_log(bridge.owner.host,"bbmod.menu.trace",BBM_LOG_INFO,
+            "%s %s slot=%d valid=%d display=%.3f,%.3f,%.3f,%.3f,%.3f,%.3f visible=%u",
+            path,phase,slot,valid,fields[0],fields[1],fields[2],fields[3],fields[4],fields[5],display[0xd6]);
+    }
+    release_movie_value(value);
+}
+static void trace_row_value(native_movie_row *row,const char *path,const char *phase,int slot){
+    trace_movie_value(&row->value,path,phase,slot);
+}
+static void trace_list(void *widget,const live_view *view,const char *phase){
+    if(!bridge.trace)return;
+    void *list=(char*)widget+0xa70;int32_t fields[7];memcpy(fields,(char*)list+0x70,sizeof fields);
+    mh_log(bridge.owner.host,"bbmod.menu.trace",BBM_LOG_INFO,
+        "%s %s page=%zu rows=%zu native_count=%d selected=%d pending=%d grid=%dx%d origin=%d",
+        view->path,phase,view->page,view->count,fields[0],fields[1],fields[2],fields[3],fields[4],fields[5]);
+    void *control=NULL;memcpy(&control,(char*)list+0xa0,8);
+    if(control){
+        _Alignas(16) native_movie_value value={0};
+        ((void*(G*)(void*,void*))(*(void***)control)[0])(&value,control);
+        trace_movie_value(&value,view->path,phase,-1);
+    }
+    for(int32_t slot=0;slot<MH_MENU_VISIBLE_ROWS;slot++){
+        _Alignas(16) native_movie_row row={0};ops.list_row(&row,list,slot);
+        trace_row_value(&row,view->path,phase,slot);
+    }
+}
 static void free_caption(unsigned char *ws){
     uint64_t cap=0,ptr=0,allocator=0;memcpy(&cap,ws+24,8);
     if(cap<8)return;memcpy(&ptr,ws,8);memcpy(&allocator,ws+32,8);
@@ -147,7 +254,9 @@ static size_t items_at_revision(const char *path,mh_menu_item *items,size_t cap,
     if(revision)*revision=bridge.snapshot.revision;
     size_t n=0;for(size_t i=0;i<bridge.snapshot.count&&n<cap;i++){
         mh_menu_item *p=&bridge.snapshot.items[i];
-        if((p->node.flags&BBM_MENU_ENABLED)&&!strcmp(p->node.parent,path))items[n++]=*p;
+        if(!(p->node.flags&BBM_MENU_ENABLED)||strcmp(p->node.parent,path))continue;
+        if(!strcmp(path,"game.system")&&!strcmp(p->node.key,"mods-root"))continue; /* replaces the Mods entry; see root_item */
+        items[n++]=*p;
     }
     if(!strcmp(path,"game.mods"))for(size_t i=0;i<bridge.snapshot.mod_count&&n<cap;i++){
         int configured=0;
@@ -162,6 +271,24 @@ static size_t items_at_revision(const char *path,mh_menu_item *items,size_t cap,
     leave();return n;
 }
 static size_t items_for(const char *path,mh_menu_item *items,size_t cap){return items_at_revision(path,items,cap,NULL);}
+/* The pause menu's Mods entry: the built-in link to the native Mods list, unless a manager mod
+ * registered an Action under game.system with the key "mods-root" (the host only allows that for
+ * mods with the manage capability). Activating it then reaches that mod instead. */
+static void root_item(mh_menu_item *root){
+    memset(root,0,sizeof *root);
+    if(enter()){
+        for(size_t i=0;i<bridge.snapshot.count;i++){
+            const mh_menu_item *p=&bridge.snapshot.items[i];
+            if((p->node.flags&BBM_MENU_ENABLED)&&p->node.kind==BBM_MENU_ACTION&&!strcmp(p->node.parent,"game.system")&&!strcmp(p->node.key,"mods-root")){*root=*p;break;}
+        }
+        leave();
+    }
+    if(root->id)return;
+    root->node.kind=BBM_MENU_LINK;root->node.flags=BBM_MENU_ENABLED;
+    mh_strlcpy(root->node.label,"Mods",sizeof root->node.label);
+    mh_strlcpy(root->node.help,"Installed mods and their settings",sizeof root->node.help);
+    mh_strlcpy(root->node.target,"game.mods",sizeof root->node.target);
+}
 #include "native_menu_live.inc"
 static void *G open_screen(void *out,void *ctx,const char *path){
     *(void**)out=NULL;
@@ -191,10 +318,7 @@ static void *G open_screen(void *out,void *ctx,const char *path){
 static void *G blank_detour(void *builder){
     uintptr_t caller=(uintptr_t)__builtin_return_address(0);
     if(caller==bridge.base+0x1bde91d&&bridge.asset[0]&&__atomic_load_n(&bridge.enabled,__ATOMIC_ACQUIRE)){
-        mh_menu_item root={0};root.node.kind=BBM_MENU_LINK;root.node.flags=BBM_MENU_ENABLED;
-        mh_strlcpy(root.node.label,"Mods",sizeof root.node.label);
-        mh_strlcpy(root.node.help,"Installed mods and their settings",sizeof root.node.help);
-        mh_strlcpy(root.node.target,"game.mods",sizeof root.node.target);
+        mh_menu_item root;root_item(&root);
         if(append(builder,&root))return builder;
     }
     return ((void*(G*)(void*))bridge.originals[0])(builder);
@@ -202,10 +326,7 @@ static void *G blank_detour(void *builder){
 static void *G finalizer_detour(void *out,void *builder,void *factory){
     uintptr_t caller=(uintptr_t)__builtin_return_address(0);
     if(caller==bridge.base+0x1bb497d&&__atomic_load_n(&bridge.enabled,__ATOMIC_ACQUIRE)){
-        mh_menu_item root={0};root.node.kind=BBM_MENU_LINK;root.node.flags=BBM_MENU_ENABLED;
-        mh_strlcpy(root.node.label,"Mods",sizeof root.node.label);
-        mh_strlcpy(root.node.help,"Installed mods and their settings",sizeof root.node.help);
-        mh_strlcpy(root.node.target,"game.mods",sizeof root.node.target);append(builder,&root);
+        mh_menu_item root;root_item(&root);append(builder,&root);
         mh_menu_item *items=calloc(MH_MENU_LIMIT,sizeof *items);
         if(items){size_t n=items_for("game.system",items,MH_MENU_LIMIT);for(size_t i=0;i<n;i++)append(builder,&items[i]);free(items);}
     }
@@ -219,6 +340,7 @@ static uintptr_t G ctor_detour(uintptr_t step,uintptr_t ctx,uintptr_t type,uintp
         for(i=0;i<191;i++){uint16_t c=0;if(plat_read_safe((void*)(name+i*2),&c,2))break;
             if(!c)break;label[i]=(char)(c<128?c:'?');}
         label[i]=0;
+        trace_component_step(label,step,type,factory);
         if(label[0]&&enter()){
             size_t at=bridge.next_name++%128;bridge.names[at].step=step;mh_strlcpy(bridge.names[at].name,label,192);leave();
             bbm_menu_event ev={.kind=BBM_MENU_CREATED};mh_strlcpy(ev.screen,label,sizeof ev.screen);enqueue(ev);
@@ -243,7 +365,11 @@ static void G list_detour(unsigned char *component,unsigned char *input){
     bbm_menu_event ev={.kind=BBM_MENU_SELECTION_CHANGED,.control=bridge.controls[slot].token,
         .value=now,.previous_value=previous};
     for(size_t i=0;i<128;i++)if(bridge.names[i].step==bridge.active)mh_strlcpy(ev.screen,bridge.names[i].name,sizeof ev.screen);
-    leave();enqueue(ev);
+    leave();
+    if(component_trace_take())mh_log(bridge.owner.host,"bbmod.ui.components",BBM_LOG_INFO,
+        "focus screen=%s control=%llx previous=%d selected=%d",
+        ev.screen,(unsigned long long)(uintptr_t)component,previous,now);
+    enqueue(ev);
 }
 static void poll(modhost *h){
     if(!__atomic_load_n(&bridge.enabled,__ATOMIC_ACQUIRE))return;
@@ -255,6 +381,9 @@ static void poll(modhost *h){
     uintptr_t previous=bridge.active;bridge.active=step;++bridge.generation;
     char name[192]={0};for(size_t i=0;i<128;i++)if(bridge.names[i].step==step)mh_strlcpy(name,bridge.names[i].name,sizeof name);
     leave();
+    if(component_trace_take())mh_log(h,"bbmod.ui.components",BBM_LOG_INFO,
+        "active name=%s previous=%llx step=%llx generation=%llu",name[0]?name:"unknown",
+        (unsigned long long)previous,(unsigned long long)step,(unsigned long long)bridge.generation);
     if(previous){bbm_menu_event ev={.kind=BBM_MENU_CLOSED};enqueue(ev);}
     if(step){bbm_menu_event ev={.kind=BBM_MENU_OPENED};mh_strlcpy(ev.screen,name[0]?name:"unknown",sizeof ev.screen);enqueue(ev);}
 }
@@ -264,6 +393,7 @@ static size_t poll_drain(void *u,bbm_menu_event *out,size_t cap,uint64_t *drops)
 }
 static void stop(void *u){
     modhost *h=u;__atomic_store_n(&bridge.enabled,0,__ATOMIC_RELEASE);
+    __atomic_store_n(&bridge.component_trace_budget,0,__ATOMIC_RELAXED);
     for(size_t i=0;i<5;i++)if(bridge.hooks[i]){
         void *block=bridge.hooks[i]->block;mh_hook_remove(h,bridge.hooks[i]);bridge.hooks[i]=NULL;
         for(size_t j=0;j<h->ndeferred;)if(h->deferred[j].p==block)h->deferred[j]=h->deferred[--h->ndeferred];else ++j;
@@ -275,6 +405,9 @@ static void stop(void *u){
 #include "native_menu_profile.h"
 int mh_menu_bridge_resolve(modhost *h,const char *key,char *out,size_t cap){
     if(!__atomic_load_n(&bridge.enabled,__ATOMIC_ACQUIRE)||__atomic_load_n(&bridge.owner.host,__ATOMIC_ACQUIRE)!=h)return 0;
+    size_t key_len=strlen(key);
+    if(key_len>4&&!strncmp(key,"dvdroot_ps4/menu/",16)&&!strcmp(key+key_len-4,".gfx")&&component_trace_take())
+        mh_log(h,"bbmod.ui.components",BBM_LOG_INFO,"movie request=%s",key);
     const char *source=NULL;
     if(bridge.asset[0]&&!strcmp(key,"dvdroot_ps4/menu/ingametop.gfx"))source=bridge.asset;
     /* Step names are also movie names. Keep the registry path as the unique
@@ -300,11 +433,23 @@ int mh_menu_bridge_start(modhost *h,mh_menu_sink *sink){
     if(!on||strcmp(on,"1")||h->cfg.safe_mode)return 0;
     if(bridge.used||!h->cfg.eboot_base||h->cfg.eboot_size<0x5580e40){mh_log(h,"bbmod.menu",BBM_LOG_WARN,"native UI unavailable: image/lifecycle");return 0;}
     unsigned char bytes[20];
+    /* Older generated profiles do not cover the narrow live-list operations.
+     * Fail closed rather than binding unverified functions from a stale profile. */
+    unsigned live_checks=0;int trace_checked=0;
     for(size_t i=0;i<sizeof menu_signatures/sizeof menu_signatures[0];i++){
         if(mh_read_safe(h,(void*)(h->cfg.eboot_base+menu_signatures[i].rva),bytes,20)||
            memcmp(bytes,menu_signatures[i].bytes,20)){
             mh_log(h,"bbmod.menu",BBM_LOG_WARN,"native UI unavailable: fingerprint at %llx",(unsigned long long)menu_signatures[i].rva);return 0;
         }
+        if(menu_signatures[i].rva==0x1acf2c0)live_checks|=1;
+        if(menu_signatures[i].rva==0x1acf6b0)live_checks|=2;
+        if(menu_signatures[i].rva==0x1acfb20)live_checks|=4;
+        if(menu_signatures[i].rva==0x1ad06e0)live_checks|=8;
+        if(menu_signatures[i].rva==0x1ad1f50)trace_checked=1;
+    }
+    const char *live=getenv("BB_MODS_NATIVE_UI_LIVE");
+    if(live&&!strcmp(live,"1")&&(live_checks!=15||!trace_checked)){
+        mh_log(h,"bbmod.menu",BBM_LOG_WARN,"native UI unavailable: regenerate the live-list compatibility profile");return 0;
     }
     bridge.used=1;bridge.base=h->cfg.eboot_base;bridge.owner.host=h;bridge.owner.entry=&bridge.entry;
     const char *assets=getenv("BB_NATIVE_UI_ASSETS");
@@ -323,8 +468,16 @@ int mh_menu_bridge_start(modhost *h,mh_menu_sink *sink){
     ops.init=(void*) (bridge.base+0x1be8a30);ops.append=(void*)(bridge.base+0x1b4e2a0);
     ops.cleanup=(void*)(bridge.base+0x1b4cbb0);ops.caption=(void*)(bridge.base+0x1ae8cc0);
     ops.factory=(void*)(bridge.base+0x1bdaa90);ops.copy=(void*)(bridge.base+0x1b56560);
-    ops.refresh=(void*)(bridge.base+0x1beaca0);ops.selection=(void*)(bridge.base+0x1be90f0);
-    const char *live=getenv("BB_MODS_NATIVE_UI_LIVE");bridge.live=live&&!strcmp(live,"1");
+    ops.list_count=(void*)(bridge.base+0x1acf2c0);ops.list_focus=(void*)(bridge.base+0x1acf6b0);
+    ops.list_layout=(void*)(bridge.base+0x1acfb20);ops.list_redraw=(void*)(bridge.base+0x1ad06e0);
+    ops.list_row=(void*)(bridge.base+0x1ad1f50);
+    ops.list_ready=list_movie_ready;
+    ops.selection=(void*)(bridge.base+0x1be90f0);
+    bridge.live=live&&!strcmp(live,"1");
+    const char *trace=getenv("BB_MODS_NATIVE_UI_TRACE");
+    bridge.trace=bridge.live&&trace_checked&&trace&&!strcmp(trace,"1");
+    const char *components=getenv("BB_MODS_NATIVE_UI_COMPONENT_TRACE");
+    bridge.component_trace_budget=components&&!strcmp(components,"1")?512:0;
     uintptr_t targets[5]={0x1be29e0,0x1bea630,0x1c1cce0,0x1acff30,0x1be8cf0};void *detours[5]={(void*)blank_detour,(void*)finalizer_detour,(void*)ctor_detour,(void*)list_detour,(void*)frame_detour};
     for(size_t i=0;i<(bridge.live?5u:4u);i++)if(mh_hook_inline(&bridge.owner,bridge.base+targets[i],detours[i],&bridge.originals[i],&bridge.hooks[i])!=BBM_OK){
         stop(h);mh_log(h,"bbmod.menu",BBM_LOG_WARN,"native UI hook installation failed; changes rolled back");return 0;
