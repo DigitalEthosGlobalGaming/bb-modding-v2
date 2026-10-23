@@ -12,6 +12,7 @@ It refuses to run while the game or launcher is open. Scripted use:
 
 ```powershell
 bb-modding-installer.exe --game <game folder> --port <bbport folder>   # install, no window
+bb-modding-installer.exe --detect --port <bbport folder>               # which bbport version is installed
 bb-modding-installer.exe --uninstall --port <bbport folder>            # undo the last install
 ```
 
@@ -20,6 +21,14 @@ recorded in `<port>/bb-modding-install.json`. Uninstall restores them, and refus
 changed after the install. Saves, `user/`, `config/`, `mod-data/` and `bbport.ini` can never be part of
 a payload. The installer is unsigned, so Windows SmartScreen warns on first run.
 
+## bbport versions
+
+The mod loader is compiled into `bb-probe.exe`, so the installer carries one patched runtime per supported
+bbport release (`runtimes` in `src/scripts/tools.lock.json`) and picks by the SHA-256 of the installed stock
+`bb-probe.exe`. An unrecognised version is refused and nothing is changed. Reinstalling first restores the original
+files, so builds never stack. To add a release: a patch under `src/integration/`, an entry with its stock hash in
+`tools.lock.json`, `bb.ps1 build-runtime -Runtime <id>`, then rebuild the installer.
+
 ## Build
 
 ```powershell
@@ -27,7 +36,7 @@ a payload. The installer is unsigned, so Windows SmartScreen warns on first run.
 .\build.ps1 -SkipRuntime     # no staged runtime: the payload holds only the Mod Manager
 ```
 
-`payload/build-payload.ps1` zips the staged runtime (`.local/runtime-stage/bin`, from `bb.ps1 build-runtime`)
+`payload/build-payload.ps1` packs every staged runtime (`.local/runtime-stage/<id>/bin`, from `bb.ps1 build-runtime -Runtime <id>`)
 and the built manager into `payload/payload.zip` (ignored), which `build.rs` embeds. Without a payload the crate
 still builds, but the installer reports that it has nothing to install. Nothing is deployed to a game or port.
 
