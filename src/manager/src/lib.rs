@@ -54,6 +54,7 @@ struct State {
     done: Option<Receiver<Done>>,
     store: Option<bbmod::store::Store>,
     browse_started: bool,
+    dirs: Option<install::Dirs>,
 }
 
 const OWN_ID: &str = "bbmod.manager";
@@ -64,7 +65,7 @@ impl State {
     fn new() -> Self {
         Self { model: Model::default(), view: View::default(), screen: HostScreen::new(LayerKind::Screen, 100, view::build()),
             open: false, since_poll: 0, fast_poll: 0, dirty: true, text: None, open_key: bbmod::key::F2, pad_combo: 1,
-            browse: Browse::new(Vec::new()), jobs: None, done: None, store: None, browse_started: false }
+            browse: Browse::new(Vec::new()), jobs: None, done: None, store: None, browse_started: false, dirs: None }
     }
 
     fn refresh(&mut self, cx: &Cx) {
@@ -97,6 +98,12 @@ impl State {
             match c {
                 Command::Close => self.set_open(cx, false),
                 Command::Request { id, op } => {
+                    // Load / Unload in the menu is also the startup switch: it sticks across launches.
+                    if matches!(op, ModOp::Load | ModOp::Unload) {
+                        if let Some(d) = &self.dirs {
+                            if let Err(e) = install::set_enabled(&d.mods, &id, op == ModOp::Load) { cx.log_warn(&format!("manager: cannot save the startup choice for {id}: {e}")); }
+                        }
+                    }
                     if let Err(e) = cx.manager_request(&id, op) { self.model.status = format!("Request failed: {e}"); }
                     self.fast_poll = 12; // the host applies it at the next sync point
                 }
@@ -133,7 +140,7 @@ impl State {
     fn sync_now(&mut self) {
         let focus = self.screen.focus().map(str::to_owned);
         let (model, view, browse) = (&self.model, &mut self.view, &self.browse);
-        self.screen.update(|root| { view.sync(root, model, focus.as_deref()); view::sync_browse(root, browse, &model.mods); });
+        self.screen.update(|root| { view.sync(root, model, focus.as_deref()); view::sync_browse(root, browse, &model.status, &model.mods); });
     }
 
     fn frame(&mut self, cx: &mut Cx) {
@@ -185,6 +192,7 @@ impl State {
             return;
         };
         let dirs = install::Dirs::new(&mods, OWN_ID);
+        self.dirs = Some(dirs.clone());
         let (jtx, jrx) = channel();
         let (dtx, drx) = channel();
         match cx.spawn(move |stop| jobs::worker(jrx, dtx, dirs, stop)) {

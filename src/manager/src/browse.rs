@@ -3,7 +3,7 @@
 //! `lib.rs` executes the actions against the host and the worker thread.
 
 use crate::catalog::{self, compat, Compat, ListEntry, Manifest, ModList, Source, HOST_ABI, OFFICIAL_SOURCE};
-use crate::jobs::{Done, Job};
+use crate::jobs::{Done, Job, Step};
 use bbmod::settings::{ModInfo, ModState};
 use bbmod::ui_layer::EventKind;
 
@@ -33,6 +33,12 @@ enum Task { Install, Remove }
 enum Stage { WaitUnload, Working }
 struct Pending { id: String, task: Task, stage: Stage, waited: u32 }
 
+/// Live progress of the install in flight.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Progress { pub id: String, pub step: Step, pub done: u64, pub total: u64 }
+
+fn mib(b: u64) -> String { format!("{:.1}", b as f64 / 1048576.0) }
+
 #[derive(Default)]
 pub struct Browse {
     pub sources: Vec<String>,
@@ -47,6 +53,9 @@ pub struct Browse {
     pending: Vec<Pending>,
     to_load: Vec<(String, u32)>,
     in_detail: bool,
+    progress: Option<Progress>,
+    /// Mods that were running when an update began; they are loaded again afterwards.
+    reload_after: Vec<String>,
 }
 
 pub fn installed<'a>(mods: &'a [ModInfo], id: &str) -> Option<&'a ModInfo> { mods.iter().find(|m| m.id == id) }
@@ -58,6 +67,26 @@ impl Browse {
     }
 
     pub fn busy(&self) -> bool { self.outstanding > 0 || !self.pending.is_empty() }
+
+    /// Text and 0..1 fill for the progress bar, while an install is under way.
+    pub fn progress_view(&self) -> Option<(String, f32)> {
+        let name = |id: &str| self.catalog.iter().find(|m| m.entry.id == id).map_or(id.to_owned(), |m| m.entry.name.clone());
+        if let Some(p) = &self.progress {
+            let n = name(&p.id);
+            let frac = |d: u64, t: u64| if t == 0 { 0.0 } else { (d as f32 / t as f32).clamp(0.0, 1.0) };
+            return Some(match p.step {
+                Step::Checking => (format!("Installing {n}: checking the release..."), 0.03),
+                Step::Downloading if p.total > 0 => (format!("Installing {n}: downloading {} of {} MB ({}%)", mib(p.done), mib(p.total), (frac(p.done, p.total) * 100.0) as u32), 0.05 + 0.85 * frac(p.done, p.total)),
+                Step::Downloading => (format!("Installing {n}: downloading {} MB", mib(p.done)), 0.1),
+                Step::Verifying => (format!("Installing {n}: verifying..."), 0.92),
+                Step::Unpacking => (format!("Installing {n}: unpacking..."), 0.96),
+            });
+        }
+        self.pending.iter().find(|p| p.task == Task::Install).map(|p| match p.stage {
+            Stage::WaitUnload => (format!("Updating {}: unloading it first...", name(&p.id)), 0.0),
+            Stage::Working => (format!("Installing {}: starting...", name(&p.id)), 0.01),
+        })
+    }
 
     /// Work is in flight or a freshly installed mod still has to be loaded: keep polling.
     pub fn active(&self) -> bool { self.busy() || !self.to_load.is_empty() }
@@ -218,6 +247,7 @@ impl Browse {
         match installed(mods, &m.entry.id) {
             Some(i) if i.state == ModState::Active => {
                 self.status = format!("Unloading {name} before updating...");
+                self.reload_after.push(m.entry.id.clone());
                 self.pending.push(Pending { id: m.entry.id.clone(), task: Task::Install, stage: Stage::WaitUnload, waited: 0 });
                 vec![Out::Unload(m.entry.id)]
             }
@@ -237,8 +267,13 @@ impl Browse {
 
     /// A worker result arrived.
     pub fn on_done(&mut self, done: Done, mods: &[ModInfo]) -> Vec<Out> {
+        if let Done::Progress { id, step, done, total } = done {
+            self.progress = Some(Progress { id, step, done, total });
+            return vec![];
+        }
         self.outstanding = self.outstanding.saturating_sub(1);
         match done {
+            Done::Progress { .. } => vec![],
             Done::List { source, result } => {
                 self.lists_out = self.lists_out.saturating_sub(1);
                 match result {
@@ -257,10 +292,18 @@ impl Browse {
             }
             Done::Installed { id, result } => {
                 self.pending.retain(|p| !(p.id == id && p.task == Task::Install));
+                self.progress = None;
+                let was_running = self.reload_after.contains(&id);
+                self.reload_after.retain(|r| r != &id);
                 match result {
                     Ok(done) => {
-                        self.status = format!("Installed {id} {}.{}.{}.", done.version.0, done.version.1, done.version.2);
-                        self.to_load.push((id, 0));
+                        let v = format!("{}.{}.{}", done.version.0, done.version.1, done.version.2);
+                        if was_running && done.enabled {
+                            self.status = format!("Updated {id} to {v}.");
+                            self.to_load.push((id, 0));
+                        } else {
+                            self.status = format!("Installed {id} {v}. It is switched off: open the Mods tab and Load it when you want it.");
+                        }
                     }
                     Err(e) => self.status = format!("Install failed: {e}"),
                 }
@@ -327,6 +370,7 @@ mod tests {
     use super::*;
     use crate::catalog::Manifest;
     use crate::install::Installed;
+    use crate::jobs::Step;
     use crate::model::info;
 
     fn entry(id: &str) -> ListEntry {
@@ -386,10 +430,30 @@ mod tests {
         let out = b.tick(&[stopped.clone()]);
         assert!(matches!(out.as_slice(), [Out::Job(Job::Install { entry })] if entry.id == "x.mod"));
         assert!(b.tick(&[stopped.clone()]).is_empty());
-        b.on_done(Done::Installed { id: "x.mod".into(), result: Ok(Installed { id: "x.mod".into(), version: (1, 2, 0), replaced: true }) }, &[stopped.clone()]);
-        assert!(b.status.starts_with("Installed x.mod 1.2.0") && !b.busy());
+        b.on_done(Done::Installed { id: "x.mod".into(), result: Ok(Installed { id: "x.mod".into(), version: (1, 2, 0), replaced: true, enabled: true }) }, &[stopped.clone()]);
+        assert!(b.status.starts_with("Updated x.mod to 1.2.0") && !b.busy());
         assert!(matches!(b.tick(&[stopped]).as_slice(), [Out::Load(id)] if id == "x.mod"));
         assert!(b.tick(&[running]).is_empty()); // loaded again: done
+    }
+
+    #[test]
+    fn progress_is_reported_while_installing_and_new_installs_stay_off() {
+        let mut b = loaded();
+        b.on_done(Done::Manifest { id: "x.mod".into(), result: Ok(manifest("x.mod", (1, 0, 0), (1, 1))) }, &[]);
+        assert!(b.progress_view().is_none());
+        b.on_event("b-install", EventKind::Activated, &[]);
+        assert!(b.progress_view().unwrap().0.contains("starting")); // nothing reported yet
+        b.on_done(Done::Progress { id: "x.mod".into(), step: Step::Checking, done: 0, total: 0 }, &[]);
+        assert!(b.progress_view().unwrap().0.contains("checking"));
+        b.on_done(Done::Progress { id: "x.mod".into(), step: Step::Downloading, done: 5 * 1048576, total: 10 * 1048576 }, &[]);
+        let (text, frac) = b.progress_view().unwrap();
+        assert!(text.contains("5.0 of 10.0 MB (50%)"), "{text}");
+        assert!((frac - 0.475).abs() < 0.01, "{frac}");
+        assert!(b.busy()); // progress is not a result: the install is still pending
+        b.on_done(Done::Installed { id: "x.mod".into(), result: Ok(Installed { id: "x.mod".into(), version: (1, 0, 0), replaced: false, enabled: false }) }, &[]);
+        assert!(b.progress_view().is_none() && !b.busy());
+        assert!(b.status.contains("switched off") && b.status.contains("Load"), "{}", b.status);
+        assert!(b.tick(&[]).is_empty() && b.tick(&[]).is_empty()); // never loaded for the player
     }
 
     #[test]
@@ -405,7 +469,7 @@ mod tests {
         b.on_done(Done::Installed { id: "x.mod".into(), result: Err("no network".into()) }, &[]);
         assert!(b.status.contains("no network") && !b.busy());
         b.on_event("b-install", EventKind::Activated, &[]);
-        b.on_done(Done::Installed { id: "x.mod".into(), result: Ok(Installed { id: "x.mod".into(), version: (1, 0, 0), replaced: false }) }, &[]);
+        b.on_done(Done::Installed { id: "x.mod".into(), result: Ok(Installed { id: "x.mod".into(), version: (1, 0, 0), replaced: false, enabled: false }) }, &[]);
         assert!(b.tick(&[]).is_empty()); // not listed yet: keep waiting without acting
         let discovered = info("x.mod", "X", ModState::Discovered, false);
         assert!(b.tick(&[discovered]).is_empty()); // the host loads discovered mods itself

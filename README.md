@@ -38,7 +38,7 @@ Open it with **F2**, with **L1 + R1 + Touchpad** on a controller, or from the pa
 | **Settings** | Each mod's own settings. Under **Mod Manager** you can change the open key and add mod lists. |
 | **Browse** | Lists the mods from your mod lists. Select one to see its details and whether it works with your loader, then press **Install**. |
 
-**Installing a mod.** Open **Browse**, select a mod and press **Install**. The mod is downloaded, checked and loaded.
+**Installing a mod.** Open **Browse**, press X on a mod and choose **Install**. A progress bar shows the download. New mods are installed switched off: open the **Mods** tab, press X on the mod and choose **Load** when you want it. Load and Unload are remembered for the next time you start the game.
 **Update** appears when a newer version is available. **Remove** takes the mod out; the previous copy is kept in
 `mod-data/bbmod.manager/previous` inside your bbport folder.
 

@@ -107,7 +107,8 @@ int main(int argc, char **argv) {
 
     /* Mods tab: unload Difficulty (settings stay), then load it again. */
     act(h, BBM_UI_ACT_PREV_TAB);
-    act(h, BBM_UI_ACT_CONFIRM);                    /* Difficulty is the selected row */
+    act(h, BBM_UI_ACT_CONFIRM);                    /* Difficulty is the selected row: its actions open on the right */
+    act(h, BBM_UI_ACT_CONFIRM);                    /* the focused Unload button */
     frames(h, 3);
     mh_entry *d = mh_find(h, "me.difficulty");
     assert(d && d->state == MODHOST_UNLOADED);
@@ -118,7 +119,9 @@ int main(int argc, char **argv) {
     saved = slurp(cfgfile);
     assert(saved && strstr(saved, "dealt_pct = 105"));  /* value survived the reload */
 
-    /* Back closes the menu: input is released and the layer fades out. */
+    /* Back leaves the actions for the list, and once more closes the menu: input is released and the layer fades out. */
+    act(h, BBM_UI_ACT_BACK);
+    assert(modhost_ui_captures(h));
     act(h, BBM_UI_ACT_BACK);
     assert(!modhost_ui_captures(h));
     modhost_ui_input(h, BBM_UI_ACT_CONFIRM); assert(h->nin == 0);

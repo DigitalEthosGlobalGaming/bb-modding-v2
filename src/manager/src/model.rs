@@ -39,6 +39,8 @@ pub struct Model {
     pub in_controls: bool,
     /// True while focus is in the actions beside the mods list rather than the list.
     pub in_detail: bool,
+    /// The load / unload / reload just requested, until the host reports it done.
+    pending_op: Option<(String, ModOp, u8)>,
 }
 
 pub fn state_mark(s: ModState) -> &'static str {
@@ -62,12 +64,27 @@ impl Model {
     /// New mod list from the host. Keeps the selection if the mod still exists.
     pub fn set_mods(&mut self, mods: Vec<ModInfo>) {
         self.mods = mods;
+        self.finish_pending_op();
         if self.selected().is_none() { self.selected_mod = self.mods.first().map(|m| m.id.clone()); }
         if !self.mods_with_settings().any(|m| Some(m.id.as_str()) == self.settings_mod.as_deref()) {
             let next = self.mods_with_settings().next().map(|m| m.id.clone());
             self.settings_mod = next;
             self.entries.clear();
         }
+    }
+
+    /// Clear the "Loading..." / "Unloading..." message once the host has done it.
+    fn finish_pending_op(&mut self) {
+        let Some((id, op, polls)) = self.pending_op.clone() else { return };
+        let Some(m) = self.mods.iter().find(|m| m.id == id).cloned() else { self.pending_op = None; return };
+        let (done, failed) = match op {
+            ModOp::Load => (m.state == ModState::Active, m.state == ModState::Faulted),
+            ModOp::Unload => (m.state != ModState::Active, false),
+            ModOp::Reload => (m.state == ModState::Active && polls >= 2, m.state == ModState::Faulted),
+        };
+        if failed { self.status = format!("{} crashed and was disabled.", m.name); self.pending_op = None; }
+        else if done { self.status.clear(); self.pending_op = None; }
+        else { self.pending_op = Some((id, op, polls.saturating_add(1))); }
     }
 
     /// Mods that name `id` in their `after` ordering list and are loaded.
@@ -98,10 +115,15 @@ impl Model {
                 let deps = self.dependents_of(&m.id);
                 self.status = if deps.is_empty() { format!("Unloading {}...", m.name) }
                     else { format!("Unloading {}. {} load after it (ordering only) and keep running.", m.name, deps.join(", ")) };
+                self.pending_op = Some((m.id.clone(), ModOp::Unload, 0));
                 vec![Command::Request { id: m.id, op: ModOp::Unload }]
             }
             ModState::Disabled => { self.status = format!("{} is disabled in its manifest.", m.name); vec![] }
-            _ => { self.status = format!("Loading {}...", m.name); vec![Command::Request { id: m.id, op: ModOp::Load }] }
+            _ => {
+                self.status = format!("Loading {}...", m.name);
+                self.pending_op = Some((m.id.clone(), ModOp::Load, 0));
+                vec![Command::Request { id: m.id, op: ModOp::Load }]
+            }
         }
     }
 
@@ -133,6 +155,7 @@ impl Model {
             ("reload", EventKind::Activated) => match self.selected().cloned() {
                 Some(m) if m.state == ModState::Active && !m.is_self && m.has_code => {
                     self.status = format!("Reloading {}...", m.name);
+                    self.pending_op = Some((m.id.clone(), ModOp::Reload, 0));
                     vec![Command::Request { id: m.id, op: ModOp::Reload }]
                 }
                 _ => { self.status = "Only a loaded mod can be reloaded.".into(); vec![] }
@@ -236,6 +259,25 @@ mod tests {
         assert!(m.on_event("reload", EventKind::Activated).is_empty()); // not loaded
         m.selected_mod = Some("a.core".into());
         assert_eq!(m.on_event("reload", EventKind::Activated), [Command::Request { id: "a.core".into(), op: ModOp::Reload }]);
+    }
+
+    #[test]
+    fn busy_messages_clear_when_the_host_has_finished() {
+        let mut m = model();
+        m.selected_mod = Some("a.core".into());
+        m.on_event("toggle", EventKind::Activated); // Unloading...
+        assert!(m.status.starts_with("Unloading"));
+        let mut still = m.mods.clone();
+        m.set_mods(still.clone());
+        assert!(m.status.starts_with("Unloading"), "{}", m.status); // not done yet
+        still[1].state = ModState::Unloaded;
+        m.set_mods(still.clone());
+        assert!(m.status.is_empty(), "{}", m.status);
+        m.on_event("toggle", EventKind::Activated); // Loading...
+        assert!(m.status.starts_with("Loading"));
+        still[1].state = ModState::Faulted;
+        m.set_mods(still);
+        assert!(m.status.contains("crashed"), "{}", m.status);
     }
 
     #[test]

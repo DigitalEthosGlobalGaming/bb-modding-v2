@@ -50,6 +50,8 @@ pub fn build() -> Node {
                 .child(Node::container("tab-browse", Layout::Row).gap(24.0)
                     .child(Node::list("browse-list", LIST_ROWS).size(Size::Fixed(620.0), Size::Fill))
                     .child(bdetail)))
+            .child(Node::text("progress-text", ""))
+            .child(Node::bar("progress-bar", 0.0, theme::ACCENT))
             .child(Node::text("status", ""))
             .child(Node::key_guide("guide", &[("KG_OK", "Select"), ("KG_Cancel", "Back"), ("KG_L1", "Previous tab"), ("KG_R1", "Next tab")])))
 }
@@ -96,7 +98,15 @@ fn set_rows(root: &mut Node, key: &str, rows: Vec<ListRow>, selected: Option<&st
 pub struct View { controls_sig: String }
 
 /// Update the Browse tab of `root` from `browse`; `mods` says what is installed.
-pub fn sync_browse(root: &mut Node, browse: &Browse, mods: &[ModInfo]) {
+pub fn sync_browse(root: &mut Node, browse: &Browse, model_status: &str, mods: &[ModInfo]) {
+    // Install progress, and the Browse tab's own messages when the menu has none.
+    let progress = browse.progress_view();
+    set_text(root, "progress-text", progress.as_ref().map_or("", |p| p.0.as_str()), Some(theme::BRIGHT));
+    if let Some(b) = root.find_mut("progress-bar") {
+        b.visible = progress.is_some();
+        if let Kind::Bar { value, .. } = &mut b.kind { *value = progress.as_ref().map_or(0.0, |p| p.1); }
+    }
+    if model_status.is_empty() { set_text(root, "status", &browse.status, Some(theme::BRIGHT)); }
     let rows: Vec<ListRow> = browse.catalog.iter().map(|m| ListRow {
         key: m.entry.id.clone(), label: format!("{} {}", pad_mark(browse.mark(m, mods)), m.entry.name) }).collect();
     set_rows(root, "browse-list", rows, browse.selected.as_deref());

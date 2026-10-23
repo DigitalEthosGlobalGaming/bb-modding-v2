@@ -6,9 +6,9 @@ The in-game manager, formerly the Mod Menu. Open it with F2, the pad combo, or t
 - **Settings**: each mod's declared settings.
 - **Browse**: mod lists and installs. Add a source as `owner/repo` (reads that repository's `modlist.json`),
   a GitHub link, or an `https://` link to a JSON file. Selecting a mod reads its `mod.toml` from its repository
-  and checks the ABI against this loader. Install, Update and Remove work on the mod's GitHub Release ZIP
+  and checks the ABI against this loader. Install, Update and Remove (with a progress bar) work on the mod's GitHub Release ZIP
   (verified against a `<asset>.sha256` file or the list's `sha256`), unloading a running mod first and loading it
-  again afterwards. The previous version is kept in `mod-data/bbmod.manager/previous`.
+  again afterwards. A newly installed mod starts switched off (`enabled = false` in its `[load]` section); Load / Unload in the Mods tab turns it on or off for later launches too. The previous version is kept in `mod-data/bbmod.manager/previous`.
 
 The official list is `DigitalEthosGlobalGaming/bb-modding-mod-list`. Mods run native code in the game process
 and lists are not vetted. Mods with `manage = true` cannot be installed from a list.

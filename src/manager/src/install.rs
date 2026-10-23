@@ -29,7 +29,58 @@ impl Dirs {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct Installed { pub id: String, pub version: (u16, u16, u16), pub replaced: bool }
+pub struct Installed { pub id: String, pub version: (u16, u16, u16), pub replaced: bool, /// Whether the host will load it on its own at startup.
+    pub enabled: bool }
+
+/// `text` with `enabled = <value>` in its `[load]` section (added when missing).
+pub fn with_enabled(text: &str, enabled: bool) -> String {
+    let nl = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let line = format!("enabled = {enabled}");
+    let mut out: Vec<String> = Vec::new();
+    let (mut in_load, mut done, mut seen_load) = (false, false, false);
+    for l in text.lines() {
+        let t = l.trim();
+        if t.starts_with('[') {
+            if in_load && !done { out.push(line.clone()); done = true; }
+            in_load = t == "[load]";
+            seen_load |= in_load;
+            out.push(l.to_owned());
+        } else if in_load && !done && t.split('=').next().is_some_and(|k| k.trim() == "enabled") {
+            out.push(line.clone());
+            done = true;
+        } else { out.push(l.to_owned()); }
+    }
+    if in_load && !done { out.push(line.clone()); done = true; }
+    if !seen_load { if out.last().is_some_and(|l| !l.is_empty()) { out.push(String::new()); } out.push("[load]".into()); out.push(line); }
+    let _ = done;
+    out.join(nl) + nl
+}
+
+/// Whether a manifest lets the host load the mod by itself (the default).
+pub fn manifest_enabled(text: &str) -> bool {
+    let mut in_load = false;
+    for l in text.lines() {
+        let t = l.trim();
+        if t.starts_with('[') { in_load = t == "[load]"; continue; }
+        if in_load {
+            if let Some((k, v)) = t.split_once('=') {
+                if k.trim() == "enabled" { return matches!(v.split('#').next().unwrap_or("").trim(), "true" | "1"); }
+            }
+        }
+    }
+    true
+}
+
+/// Persist whether an installed mod loads at startup (the Load / Unload switch in the menu).
+pub fn set_enabled(mods_dir: &Path, id: &str, enabled: bool) -> Result<(), String> {
+    if !valid_id(id) { return err(format!("Bad mod id \"{id}\".")); }
+    let path = mods_dir.join(id).join("mod.toml");
+    let text = fs::read_to_string(&path).map_err(|e| io_err("Cannot read mod.toml", e))?;
+    let updated = with_enabled(&text, enabled);
+    if updated == text { return Ok(()); }
+    let tmp = path.with_extension("toml.tmp");
+    fs::write(&tmp, updated).and_then(|()| fs::rename(&tmp, &path)).map_err(|e| io_err("Cannot update mod.toml", e))
+}
 
 pub fn sha256_hex(data: &[u8]) -> String {
     Sha256::digest(data).iter().map(|b| format!("{b:02x}")).collect()
@@ -53,10 +104,14 @@ pub fn install_zip(zip_bytes: &[u8], dirs: &Dirs, id: &str, expected_sha256: Opt
     let stage = dirs.staging.join(id);
     if stage.exists() { fs::remove_dir_all(&stage).map_err(|e| io_err("Cannot clear the staging folder", e))?; }
     fs::create_dir_all(&stage).map_err(|e| io_err("Cannot create the staging folder", e))?;
+    // A fresh install starts switched off; an update keeps whatever the player had chosen.
+    let previous = fs::read_to_string(dirs.mods.join(id).join("mod.toml")).ok().map(|t| manifest_enabled(&t));
     let result = extract(&mut archive, &root, &stage).and_then(|()| check_stage(&stage, id)).and_then(|m| swap_in(dirs, id, &stage).map(|replaced| (m, replaced)));
     if stage.exists() { let _ = fs::remove_dir_all(&stage); }
     let (manifest, replaced) = result?;
-    Ok(Installed { id: id.into(), version: manifest.version, replaced })
+    let enabled = previous.unwrap_or(false);
+    set_enabled(&dirs.mods, id, enabled)?;
+    Ok(Installed { id: id.into(), version: manifest.version, replaced, enabled })
 }
 
 /// Folder prefix inside the archive that holds `mod.toml` ("" or "name/").
@@ -160,10 +215,14 @@ mod tests {
     fn installs_from_root_or_a_single_folder_and_reports_replacement() {
         let (d, root) = dirs("ok");
         let flat = zip_of(&[("mod.toml", TOML.as_bytes()), ("a.dll", b"one")]);
-        assert_eq!(install_zip(&flat, &d, "a.mod", None).unwrap(), Installed { id: "a.mod".into(), version: (1, 2, 3), replaced: false });
+        assert_eq!(install_zip(&flat, &d, "a.mod", None).unwrap(), Installed { id: "a.mod".into(), version: (1, 2, 3), replaced: false, enabled: false });
+        assert!(!manifest_enabled(&fs::read_to_string(d.mods.join("a.mod/mod.toml")).unwrap())); // new installs start off
+        set_enabled(&d.mods, "a.mod", true).unwrap(); // the player switched it on in the menu
         assert_eq!(fs::read(d.mods.join("a.mod/a.dll")).unwrap(), b"one");
         let nested = zip_of(&[("a.mod/mod.toml", TOML.as_bytes()), ("a.mod/a.dll", b"two"), ("a.mod/content/x.bin", b"x")]);
-        assert!(install_zip(&nested, &d, "a.mod", Some(&sha256_hex(&nested))).unwrap().replaced);
+        let up = install_zip(&nested, &d, "a.mod", Some(&sha256_hex(&nested))).unwrap();
+        assert!(up.replaced && up.enabled); // an update keeps the player's choice
+        assert!(manifest_enabled(&fs::read_to_string(d.mods.join("a.mod/mod.toml")).unwrap()));
         assert_eq!(fs::read(d.mods.join("a.mod/a.dll")).unwrap(), b"two");
         assert_eq!(fs::read(d.mods.join("a.mod/content/x.bin")).unwrap(), b"x");
         assert_eq!(fs::read(d.previous.join("a.mod/a.dll")).unwrap(), b"one"); // old version kept
@@ -172,6 +231,16 @@ mod tests {
         assert!(!d.mods.join("a.mod").exists() && d.previous.join("a.mod/a.dll").exists());
         assert!(remove(&d, "a.mod").is_err());
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn enabled_flag_is_edited_in_the_load_section_only() {
+        assert_eq!(with_enabled("[mod]\nid=\"a\"\n", false), "[mod]\nid=\"a\"\n\n[load]\nenabled = false\n");
+        assert_eq!(with_enabled("[mod]\nid=\"a\"\n[load]\nhot_reload = true\n[settings]\nx = 1\n", false),
+            "[mod]\nid=\"a\"\n[load]\nhot_reload = true\nenabled = false\n[settings]\nx = 1\n");
+        assert_eq!(with_enabled("[load]\r\nenabled = false\r\nhot_reload = true\r\n", true), "[load]\r\nenabled = true\r\nhot_reload = true\r\n");
+        assert_eq!(with_enabled("[settings]\nenabled = 7\n[load]\nhot_reload = true", true), "[settings]\nenabled = 7\n[load]\nhot_reload = true\nenabled = true\n");
+        assert!(manifest_enabled("[mod]\nid=\"a\"") && !manifest_enabled("[load]\nenabled = false # off") && manifest_enabled("[settings]\nenabled = false\n"));
     }
 
     #[test]
