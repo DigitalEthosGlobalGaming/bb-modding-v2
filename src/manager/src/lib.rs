@@ -118,6 +118,13 @@ impl State {
                     if let Some(k) = first { self.screen.update(|_| {}); self.sync_now(); self.screen.set_focus(&k); }
                 }
                 Command::FocusList => { self.screen.set_focus("settings-list"); }
+                Command::FocusDetail => { self.sync_now(); self.screen.set_focus("toggle"); }
+                Command::FocusMods => { self.screen.set_focus("mods-list"); }
+                Command::Uninstall(id) => {
+                    let mods = self.model.mods.clone();
+                    let outs = self.browse.uninstall(&id, &mods);
+                    self.apply(cx, outs);
+                }
             }
         }
         self.dirty = true;
@@ -212,6 +219,7 @@ impl State {
                 }
                 Out::Unload(id) => { if let Err(e) = cx.manager_request(&id, ModOp::Unload) { self.browse.status = format!("Cannot unload {id}: {e}"); } self.fast_poll = 12; }
                 Out::Load(id) => { if let Err(e) = cx.manager_request(&id, ModOp::Load) { self.browse.status = format!("Cannot load {id}: {e}"); } self.fast_poll = 12; }
+                Out::Focus(key) => { self.sync_now(); self.screen.set_focus(key); }
                 Out::SaveSources(v) => {
                     if let (Some(store), Ok(json)) = (&self.store, serde_json::to_vec(&v)) { let _ = store.write_blob(SOURCES_BLOB, &json); }
                 }
@@ -274,6 +282,9 @@ impl Mod for MenuMod {
         if let Some(c) = event.setting_changed() { s.apply_own_setting(cx, &c.key, &c.value); return; }
         let events = s.screen.handle(event);
         for (key, kind) in events {
+            if matches!(kind, EventKind::Back) && s.model.tab == TAB_BROWSE {
+                if let Some(outs) = s.browse.on_back() { s.apply(cx, outs); continue; }
+            }
             if key == "browse-list" || key.starts_with("b-") {
                 let mods = s.model.mods.clone();
                 let outs = s.browse.on_event(&key, kind, &mods);

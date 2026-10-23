@@ -18,7 +18,8 @@ pub fn build() -> Node {
     detail = detail.child(Node::text("d-order", "")).child(Node::text("d-error", ""))
         .child(Node::container("spacer", Layout::Column).size(Size::Fill, Size::Fill))
         .child(Node::button("toggle", "Unload"))
-        .child(Node::button("reload", "Reload"));
+        .child(Node::button("reload", "Reload"))
+        .child(Node::button("uninstall", "Uninstall"));
 
     let mut bdetail = Node::panel("bdetail", Layout::Column).size(Size::Fill, Size::Fill).gap(6.0)
         .child(Node::title("b-name", "").size(Size::Fill, Size::Auto))
@@ -163,6 +164,7 @@ impl View {
                         else if m.state == ModState::Active { "Unload".into() } else { "Load".into() } };
                 }
                 if let Some(r) = root.find_mut("reload") { r.enabled = m.state == ModState::Active && !m.is_self && m.has_code; }
+                if let Some(u) = root.find_mut("uninstall") { u.enabled = !m.is_self; }
             }
             None => { for k in ["d-name", "d-meta", "d-state", "d-order", "d-error"] { set_text(root, k, "", None); } }
         }

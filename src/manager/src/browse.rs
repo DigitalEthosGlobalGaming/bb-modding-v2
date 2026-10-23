@@ -23,6 +23,8 @@ pub enum Out {
     Unload(String),
     Load(String),
     SaveSources(Vec<String>),
+    /// Move focus to a widget (the actions beside the list, or back to the list).
+    Focus(&'static str),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,6 +46,7 @@ pub struct Browse {
     lists_out: usize,
     pending: Vec<Pending>,
     to_load: Vec<(String, u32)>,
+    in_detail: bool,
 }
 
 pub fn installed<'a>(mods: &'a [ModInfo], id: &str) -> Option<&'a ModInfo> { mods.iter().find(|m| m.id == id) }
@@ -167,11 +170,36 @@ impl Browse {
     pub fn on_event(&mut self, key: &str, kind: EventKind, mods: &[ModInfo]) -> Vec<Out> {
         match (key, kind) {
             ("browse-list", EventKind::Selected(id)) => self.select(&id),
-            ("browse-list", EventKind::RowActivated(_)) | ("b-install", EventKind::Activated) => self.install(mods),
+            // X on a mod opens its actions on the right (Install / Update, Remove, ...).
+            ("browse-list", EventKind::RowActivated(id)) => { self.selected = Some(id); self.in_detail = true; vec![Out::Focus("b-install")] }
+            ("b-install", EventKind::Activated) => self.install(mods),
             ("b-remove", EventKind::Activated) => self.remove(mods),
             ("b-refresh", EventKind::Activated) => self.refresh(),
             ("b-remove-source", EventKind::Activated) => self.remove_source(),
             _ => vec![],
+        }
+    }
+
+    /// Back out of the actions to the list; `None` means the menu should close.
+    pub fn on_back(&mut self) -> Option<Vec<Out>> {
+        if !self.in_detail { return None; }
+        self.in_detail = false;
+        Some(vec![Out::Focus("browse-list")])
+    }
+
+    /// Uninstall any installed mod by id (used by the Mods tab).
+    pub fn uninstall(&mut self, id: &str, mods: &[ModInfo]) -> Vec<Out> {
+        if installed(mods, id).is_none_or(|i| i.is_self) || self.pending.iter().any(|p| p.id == id) {
+            self.status = "That mod cannot be uninstalled.".into();
+            return vec![];
+        }
+        self.status = format!("Uninstalling {id}...");
+        if installed(mods, id).is_some_and(|i| i.state == ModState::Active) {
+            self.pending.push(Pending { id: id.to_owned(), task: Task::Remove, stage: Stage::WaitUnload, waited: 0 });
+            vec![Out::Unload(id.to_owned())]
+        } else {
+            self.pending.push(Pending { id: id.to_owned(), task: Task::Remove, stage: Stage::Working, waited: 0 });
+            vec![Out::Job(Job::Remove { id: id.to_owned() })]
         }
     }
 
@@ -204,14 +232,7 @@ impl Browse {
     fn remove(&mut self, mods: &[ModInfo]) -> Vec<Out> {
         if !self.can_remove(mods) { self.status = "That mod is not installed.".into(); return vec![]; }
         let id = self.selected.clone().expect("checked");
-        self.status = format!("Removing {id}...");
-        if installed(mods, &id).is_some_and(|i| i.state == ModState::Active) {
-            self.pending.push(Pending { id: id.clone(), task: Task::Remove, stage: Stage::WaitUnload, waited: 0 });
-            vec![Out::Unload(id)]
-        } else {
-            self.pending.push(Pending { id: id.clone(), task: Task::Remove, stage: Stage::Working, waited: 0 });
-            vec![Out::Job(Job::Remove { id })]
-        }
+        self.uninstall(&id, mods)
     }
 
     /// A worker result arrived.
@@ -376,6 +397,10 @@ mod tests {
         let mut b = loaded();
         b.on_done(Done::Manifest { id: "x.mod".into(), result: Ok(manifest("x.mod", (1, 0, 0), (1, 1))) }, &[]);
         let out = b.on_event("browse-list", EventKind::RowActivated("x.mod".into()), &[]);
+        assert!(matches!(out.as_slice(), [Out::Focus("b-install")])); // X opens the actions
+        assert_eq!(b.on_back().map(|o| o.len()), Some(1));
+        assert!(b.on_back().is_none()); // second Back closes the menu
+        let out = b.on_event("b-install", EventKind::Activated, &[]);
         assert!(matches!(out.as_slice(), [Out::Job(Job::Install { .. })]));
         b.on_done(Done::Installed { id: "x.mod".into(), result: Err("no network".into()) }, &[]);
         assert!(b.status.contains("no network") && !b.busy());

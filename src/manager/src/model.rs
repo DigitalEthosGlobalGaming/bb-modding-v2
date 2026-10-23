@@ -4,6 +4,7 @@
 use bbmod::settings::{Def, Entry, Kind, ModInfo, ModOp, ModState, Value};
 use bbmod::ui_layer::EventKind;
 
+pub const TAB_MODS: usize = 0;
 pub const TAB_SETTINGS: usize = 1;
 /// Widget key prefix for generated setting controls; the rest is the setting key.
 pub const CONTROL: &str = "s:";
@@ -19,6 +20,11 @@ pub enum Command {
     LoadSettings(String),
     FocusControls,
     FocusList,
+    /// Move focus into the actions beside the mods list (Load, Reload, Uninstall).
+    FocusDetail,
+    FocusMods,
+    /// Remove an installed mod (unloads it first).
+    Uninstall(String),
 }
 
 #[derive(Default)]
@@ -31,6 +37,8 @@ pub struct Model {
     pub status: String,
     /// True while the keyboard/pad focus is in the settings controls rather than the list.
     pub in_controls: bool,
+    /// True while focus is in the actions beside the mods list rather than the list.
+    pub in_detail: bool,
 }
 
 pub fn state_mark(s: ModState) -> &'static str {
@@ -109,11 +117,19 @@ impl Model {
             (_, EventKind::TabChanged(i)) => {
                 self.tab = i;
                 self.in_controls = false;
+                self.in_detail = false;
                 if i == TAB_SETTINGS { return self.settings_mod.clone().map(Command::LoadSettings).into_iter().collect(); }
                 vec![]
             }
             ("mods-list", EventKind::Selected(id)) => { self.selected_mod = Some(id); self.status.clear(); vec![] }
-            ("mods-list", EventKind::RowActivated(_)) | ("toggle", EventKind::Activated) => self.toggle_command(),
+            // X on a mod opens its actions on the right; the buttons there do the work.
+            ("mods-list", EventKind::RowActivated(id)) => { self.selected_mod = Some(id); self.in_detail = true; vec![Command::FocusDetail] }
+            ("toggle", EventKind::Activated) => self.toggle_command(),
+            ("uninstall", EventKind::Activated) => match self.selected().cloned() {
+                Some(m) if m.is_self => { self.status = "The mod manager cannot uninstall itself.".into(); vec![] }
+                Some(m) => { self.status = format!("Uninstalling {}...", m.name); self.in_detail = false; vec![Command::Uninstall(m.id), Command::FocusMods] }
+                None => vec![],
+            },
             ("reload", EventKind::Activated) => match self.selected().cloned() {
                 Some(m) if m.state == ModState::Active && !m.is_self && m.has_code => {
                     self.status = format!("Reloading {}...", m.name);
@@ -141,6 +157,7 @@ impl Model {
             (k, kind) if k.starts_with(CONTROL) => self.control_event(&k[CONTROL.len()..], kind),
             (_, EventKind::Back) => {
                 if self.tab == TAB_SETTINGS && self.in_controls { self.in_controls = false; vec![Command::FocusList] }
+                else if self.tab == TAB_MODS && self.in_detail { self.in_detail = false; vec![Command::FocusMods] }
                 else { vec![Command::Close] }
             }
             _ => vec![],
@@ -207,7 +224,15 @@ mod tests {
         assert_eq!(m.on_event("toggle", EventKind::Activated), [Command::Request { id: "a.core".into(), op: ModOp::Unload }]);
         assert!(m.status.contains("Late"), "{}", m.status); // warns about the mod ordered after it
         m.selected_mod = Some("d.off".into());
-        assert_eq!(m.on_event("mods-list", EventKind::RowActivated("d.off".into())), [Command::Request { id: "d.off".into(), op: ModOp::Load }]);
+        assert_eq!(m.on_event("mods-list", EventKind::RowActivated("d.off".into())), [Command::FocusDetail]); // X opens the actions
+        assert!(m.in_detail);
+        assert_eq!(m.on_event("toggle", EventKind::Activated), [Command::Request { id: "d.off".into(), op: ModOp::Load }]);
+        assert_eq!(m.on_event("root", EventKind::Back), [Command::FocusMods]);
+        m.selected_mod = Some("a.core".into());
+        assert_eq!(m.on_event("uninstall", EventKind::Activated), [Command::Uninstall("a.core".into()), Command::FocusMods]);
+        m.selected_mod = Some("bbmod.manager".into());
+        assert!(m.on_event("uninstall", EventKind::Activated).is_empty() && m.status.contains("cannot uninstall"));
+        m.selected_mod = Some("d.off".into());
         assert!(m.on_event("reload", EventKind::Activated).is_empty()); // not loaded
         m.selected_mod = Some("a.core".into());
         assert_eq!(m.on_event("reload", EventKind::Activated), [Command::Request { id: "a.core".into(), op: ModOp::Reload }]);
