@@ -1,0 +1,77 @@
+name: Installer
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable-x86_64-pc-windows-msvc
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Publication audit
+        run: python src/scripts/audit_publication.py
+
+      # The patched runtime takes a long time to build, so it is cached on everything that affects it.
+      - name: Restore staged runtime
+        id: runtime
+        uses: actions/cache@v4
+        with:
+          path: .local/runtime-stage
+          key: runtime-${{ hashFiles('src/scripts/tools.lock.json', 'src/integration/**', 'src/host/**', 'sdk/include/**', 'sdk/rust/**') }}
+
+      - uses: msys2/setup-msys2@v2
+        if: steps.runtime.outputs.cache-hit != 'true'
+        id: msys2
+        with:
+          msystem: CLANG64
+          update: true
+
+      - name: Build runtime
+        if: steps.runtime.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: ./src/scripts/build-runtime.ps1 -InstallDependencies -Msys2Root "${{ steps.msys2.outputs.msys2-location }}"
+
+      - name: Build installer
+        shell: pwsh
+        run: ./src/installer/build.ps1 -Test
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bb-modding-installer
+          path: |
+            src/installer/dist/bb-modding-installer.exe
+            src/installer/dist/bb-modding-installer.exe.sha256
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: installer
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: bb-modding-installer
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            bb-modding-installer.exe
+            bb-modding-installer.exe.sha256

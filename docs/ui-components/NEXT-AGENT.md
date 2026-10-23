@@ -39,6 +39,41 @@ launched; native inventory tracing (step 4 below) still needs a user-driven run.
 
 Trial `20261022T090425856845Z` (`--components`, fresh runtime build). User: stock inventory works; **Left/Right changes tabs, L1/R1 does not**; Sample browser works. Trace summary is private in `.local/ui-research/inventory-native/live-trace-20261022.md`: inventory = two type-3 Steps from one factory per open; mod screens use separate type-7 factories. Next: Left/Right category switching in the browser (needs input route check), then the factory/provider experiment. Game closed afterwards.
 
+## Update, 23 October: overlay layer, Mod Menu and settings are built (read this first)
+
+Built and wired end to end; the **user confirmed on 22 October that the Mod Menu looks and works
+well in the game** (F2 / pad combo, tabs, list, settings, Difficulty). Not yet user-tested:
+the pause-menu "Mods" takeover below (needs the 23 October runtime rebuild and a fresh trial).
+
+- **ABI 1.11** (`sdk/include/bbmod.h`, mirrored in `bbmod-sys`): `ui_layer_set` (retained 'BBUI'
+  draw list, HUD/SCREEN/MODAL), `BBM_EV_UI_ACTION`, settings (`setting_declare/get/set`,
+  `BBM_EV_SETTING_CHANGED`) and the manage capability (`mods_info`, `mod_request`,
+  `settings_info`, `settings_write`; manifest `[mod] manage = true`). Host: `src/host/src/ui_layers.c`
+  (validation, 60 Hz fade, foreground arbitration, lock-free capture flag), `settings.c`
+  (validation, persistence to `config/<id>.settings.toml`, owner events), tests
+  `test_ui_layers.c` (fake mods) and `test_menu_mod.c` (real Mod Menu + Difficulty DLLs).
+- **SDK**: `bbmod::ui_layer` (`Screen`, `HostScreen`, encoder, nodes, `UiLayers` reference model),
+  `bbmod::settings` (`Def`, `Value`, `declare_setting`, `Event::setting_changed`, manager calls).
+- **bbport**: renderer and input routing are in the integration patch (regenerated; backup of the
+  old one in `.local/backups/`): `bbport_modui.cpp` draws streams with ImGui into the background
+  draw list, fitted to the game frame; `bbport_overlay.cpp` maps keyboard/pad/stick to actions with
+  hold-to-repeat and makes `CapturesInput()` include mod layers. The runtime stamp was updated in
+  place after `git apply --reverse --check` and a forward apply on a pristine worktree.
+- **Mods**: `src/manager` (Mod Manager, formerly `mods/bbmod.menu`) and `../modding/bb-modding-difficulty` (own repo) (publishes all 15 keys as host
+  settings; host values win over its own file unless still default). Build each with
+  `cargo build --release --manifest-path mods/<mod>/Cargo.toml`, then prepare a trial with
+  `python src/scripts/prepare_ui_trial.py --extra-mod src/manager --extra-mod ../modding/bb-modding-difficulty`.
+- **Pause menu**: a registered Action `mods-root` under `game.system` (allowed only for `manage`
+  mods) replaces the built-in "Mods" link (`root_item` in `native_menu_bridge.c`), so the pause
+  menu's Mods entry opens the Mod Menu. Unloading the Mod Menu restores the native Mods list.
+- **Known limits**: text uses the overlay's font and prompt icons are labelled badges (no game
+  font/TPF decode yet); no mouse routing; HDR output may need a pipeline rebuild (the overlay
+  pipeline uses the initial swapchain format); Text/Keybind settings edit via the system dialog and
+  a key picker. Dependencies are ordering only (`after`), so the menu warns instead of cascading.
+- **Checks run**: 25 host tests (all pass), 63 SDK tests, 7 menu and 41 Difficulty mod tests,
+  4 trial-script tests, publication audit (259). Live: user ran the 22 October trial (F2, tabs,
+  settings, unload/load). Gameplay effect of Difficulty settings through the menu was not verified.
+
 ## Update, 22 October (late): `bbmod::ui_layer` and overlay design
 
 Design report: [overlay-layer-design.md](overlay-layer-design.md) (investigation only; no

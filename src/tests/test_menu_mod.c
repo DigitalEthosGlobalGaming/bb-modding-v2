@@ -69,7 +69,7 @@ int main(int argc, char **argv) {
     snprintf(mods, sizeof mods, "%s/mods", root);
     snprintf(cache, sizeof cache, "%s/cache", root);
     snprintf(cfgfile, sizeof cfgfile, "%s/config/me.difficulty.settings.toml", root);
-    tc_make_mod(mods, "menu", argv[1], "[mod]\nid=\"bbmod.menu\"\nname=\"Mod Menu\"\nversion=\"0.1.0\"\nabi=\"1.11\"\ndll=\"m.dll\"\nmanage=true\n");
+    tc_make_mod(mods, "menu", argv[1], "[mod]\nid=\"bbmod.manager\"\nname=\"Mod Menu\"\nversion=\"0.1.0\"\nabi=\"1.11\"\ndll=\"m.dll\"\nmanage=true\n");
     tc_make_mod(mods, "difficulty", argv[2], "[mod]\nid=\"me.difficulty\"\nname=\"Difficulty\"\nversion=\"0.1.0\"\nabi=\"1.1\"\ndll=\"m.dll\"\n");
     modhost_config cfg = {0};
     cfg.mods_dir = mods; cfg.cache_dir = cache;
@@ -125,13 +125,13 @@ int main(int argc, char **argv) {
 
     /* Unloading the menu removes its layer; unloading it again later is safe. */
     for (int i = 0; i < 20; i++) {
-        assert(!modhost_reload_now(h, "bbmod.menu"));
+        assert(!modhost_reload_now(h, "bbmod.manager"));
         frames(h, 2);
         keys[59] = 1; frames(h, 2); keys[59] = 0; frames(h, 2);
         assert(modhost_ui_captures(h));
-        assert(!modhost_unload_now(h, "bbmod.menu"));
+        assert(!modhost_unload_now(h, "bbmod.manager"));
         assert(!modhost_ui_captures(h) && modhost_ui_layers(h, v, 8) == 0);
-        assert(!modhost_load_now(h, "bbmod.menu"));
+        assert(!modhost_load_now(h, "bbmod.manager"));
     }
     modhost_destroy(h);
     tc_rmtree(root);

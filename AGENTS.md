@@ -8,7 +8,7 @@ and src/integration/bbport-modhost.patch. Edit canonical source, then reprepare/
 do not independently edit the materialized host/SDK copies in the runtime checkout.
 
 Separate existing mod projects remain under ../modding/mods and the independent
-../modding/bb-modding-adaptive-triggers repository. Use .\bb.ps1 build-mod <project> --test.
+../modding/bb-modding-adaptive-triggers and ../modding/bb-modding-difficulty repositories. Use .\bb.ps1 build-mod <project> --test.
 New personal projects can use ignored mods/. Duplicate projects, legacy tools/references
 and live WIP trees were retired. Private Git/source/evidence archives are under
 .local/archive/source-history; original conflict snapshots are in .local/consolidation.

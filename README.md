@@ -8,7 +8,27 @@ Framework, SDK and development workflows are consolidated here. See
 [development consolidation](docs/CONSOLIDATION.md) for the active project locations,
 verified private history archives and cleanup record.
 
-## Start
+## Install (players)
+
+You need Bloodborne for PC already running through [bbport](https://github.com/DigitalEthosGlobalGaming/bb-modding-v2)
+(a folder containing `Bloodborne.exe`) and your game files (the folder containing `CUSA03173`, European GOTY
+with update 1.09). Windows 10 or 11, 64-bit.
+
+1. Download `bb-modding-installer.exe` from the latest GitHub Release, or from the `bb-modding-installer` artifact
+   of a recent run in the repository's Actions tab. Optionally check it against the `.sha256` file next to it.
+2. Close the game and the launcher.
+3. Run the installer. It is not code-signed, so Windows SmartScreen may warn: choose **More info**, then **Run anyway**.
+4. Pick your **game folder** and your **bbport folder**. Each shows a green OK when it is valid.
+5. Review the list of files and press **Install**. Files that are replaced are backed up first.
+6. Start the game. Press **F2** (or L1 + R1 + Touchpad, or the pause menu's **Mods** entry) to open the Mod Manager.
+   Its **Browse** tab lists mods from the official mod list and installs them for you; use **Add mod list...** to
+   add someone else's list.
+
+To undo the install, run the installer again and choose **Uninstall instead** on the review page, or from a terminal:
+`bb-modding-installer.exe --uninstall --port "<bbport folder>"`. Your saves and settings are never touched.
+Mods are native code that runs inside the game, and mod lists are not vetted: install only what you trust.
+
+## Start (developers)
 
 Open PowerShell in this directory:
 
@@ -50,6 +70,8 @@ by selecting it. See [runtime integration and rollback](docs/RUNTIME.md).
 | `src/host/` | Framework host | Tracked |
 | `src/scripts/` | Setup, generation, content and deployment tools | Tracked |
 | `src/integration/`, `src/tests/` | Port integration and synthetic tests | Tracked |
+| `src/manager/` | Mod Manager (`bbmod.manager`), the in-game mod browser and installer | Tracked |
+| `src/installer/` | `bb-modding-installer.exe` for players ([README](src/installer/README.md)) | Tracked |
 | `sdk/` | C ABI and Rust SDK | Tracked; generated local data ignored |
 | `docs/examples/`, `docs/templates/` | Reviewed source examples and starters | Tracked |
 | `.local/` | Machine paths, reports, build stages and rollback backups | Ignored |

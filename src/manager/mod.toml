@@ -1,0 +1,12 @@
+[mod]
+id = "bbmod.manager"
+name = "Mod Manager"
+version = "0.2.0"
+abi = "1.11"
+dll = "bbmod_manager.dll"
+author = "bbmod"
+description = "In-game mod manager: turn installed mods on and off, edit their settings, and browse, install, update and remove mods from mod lists."
+manage = true
+
+[load]
+hot_reload = true
