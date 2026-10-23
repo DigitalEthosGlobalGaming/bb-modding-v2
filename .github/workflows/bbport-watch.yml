@@ -1,0 +1,68 @@
+name: Watch bbport releases
+
+# Looks for a new upstream bbport release every day. If the integration patch still applies, it opens
+# a pull request that adds the version (the installer workflow then builds its runtime). If it does not,
+# it opens an issue: that version needs a human to rebase the patch (see DEVELOPERS.md).
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  watch:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Keep line endings as committed
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # The patch check needs a checkout of the upstream source (tools/bloodborne_pc).
+      - name: Fetch the pinned bbport source
+        shell: pwsh
+        run: |
+          python -c "import sys; sys.path.insert(0, 'src/scripts'); import toolkit; s = toolkit.runtime_spec(); toolkit.checkout(s['repository'], s['commit'], toolkit.ROOT / s['dir'])"
+
+      - name: Look for a new release
+        id: look
+        shell: pwsh
+        run: |
+          python src/scripts/add_runtime.py --latest
+          "code=$LASTEXITCODE" >> $env:GITHUB_OUTPUT
+          exit 0
+
+      - name: Open a pull request that adds it
+        if: steps.look.outputs.code == '0'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: bbport-new-release
+          commit-message: Support a new bbport release
+          title: Support a new bbport release
+          body: |
+            The newest upstream bbport release is not in `tools.lock.json` yet, and the integration patch applies to it
+            unchanged. This adds it; the Installer workflow on this pull request builds its runtime.
+
+            A runtime that compiles is not a tested one. Run the game with it before releasing an installer.
+          add-paths: src/scripts/tools.lock.json
+
+      - name: Open an issue when the patch needs a rebase
+        if: steps.look.outputs.code == '3'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $title = 'A new bbport release needs the integration patch rebased'
+          $exists = gh issue list --state open --search "$title in:title" --json number --jq 'length'
+          if ($exists -eq '0') {
+            gh issue create --title $title --body "The newest upstream bbport release is not supported and src/integration patches do not apply to it. See 'Supporting another bbport version' in DEVELOPERS.md, or run: python src/scripts/add_runtime.py --latest --dry-run"
+          }

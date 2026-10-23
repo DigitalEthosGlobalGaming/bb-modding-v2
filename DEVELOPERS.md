@@ -133,3 +133,8 @@ hunks (usually a few lines in `build.sh` or `gpu/CMakeLists.txt`), `git add -A`,
 to `src/integration/<tag>.patch`, and pass it with `--patch`. Then add a cache step for it to
 `.github/workflows/installer.yml`. A runtime that compiles is not a tested one: run the game with it before releasing.
 Keep `*.patch` files LF (`.gitattributes` does).
+
+This is automated: `.github/workflows/bbport-watch.yml` runs `add_runtime.py --latest` daily, opens a pull request when the patch still
+applies to a new upstream release and an issue when it needs a rebase. The Installer workflow builds a runtime for every entry in
+`tools.lock.json`, so a merged pull request is all a supported version needs. Why a loader that works with any version is a larger
+project, and what it would take, is in [docs/VERSION-INDEPENDENT-LOADER.md](docs/VERSION-INDEPENDENT-LOADER.md).
