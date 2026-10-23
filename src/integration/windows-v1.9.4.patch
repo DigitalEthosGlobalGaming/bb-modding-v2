@@ -1318,7 +1318,7 @@ new file mode 100644
 index 0000000..603a217
 --- /dev/null
 +++ b/src/runtime_modhost.c
-@@ -0,0 +1,260 @@
+@@ -0,0 +1,273 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later
 + * Native code mods (bbmod, third_party/bbmod): the glue between bbport and the
 + * mod host. Built with -DBB_MODHOST (gpu/CMakeLists.txt, on when
@@ -1486,6 +1486,19 @@ index 0000000..603a217
 +    static char dir[1024], cache[1100];
 +    const char *d = getenv("BB_CODEMODS_DIR");
 +    snprintf(dir, sizeof(dir), "%s", d && *d ? d : "bbmods");
++#ifdef _WIN32
++    if (!(d && *d)) {
++        /* The launcher did not set it (the port's own run.py does not): export the folder as an
++         * absolute path so the mods, which read BB_CODEMODS_DIR, find their config and installs. */
++        char full[1024];
++        DWORD n = GetFullPathNameA(dir, (DWORD)sizeof(full), full, NULL);
++        if (n > 0 && n < sizeof(full)) {
++            SetEnvironmentVariableA("BB_CODEMODS_DIR", full);
++            _putenv_s("BB_CODEMODS_DIR", full);
++            snprintf(dir, sizeof(dir), "%s", full);
++        }
++    }
++#endif
 +    snprintf(cache, sizeof(cache), "%s-cache", dir); /* beside, so it is not scanned as a mod */
 +    dev_mode = env_on("BB_MODS_DEV");
 +    open_log(dir);

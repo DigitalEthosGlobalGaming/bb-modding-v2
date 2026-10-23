@@ -13,8 +13,18 @@ def git(target, *args):
 
 def prepare(target=None, runtime_id=None):
     spec = runtime_spec(runtime_id)
-    target = Path(target).resolve() if target else ROOT / spec['dir']
     patch = ROOT / spec['integration']
+    if target:
+        target = Path(target).resolve()
+    else:
+        target = ROOT / spec['dir']
+        old = target / '.bbmod-source.json'
+        # A checkout is never rewritten: when the patch or pinned commit changed since it was prepared,
+        # a fresh one is made beside it (named by the patch's hash) and the old one is left for you to delete.
+        if old.exists():
+            state = json.loads(old.read_text())
+            if state['patch_sha256'] != sha(patch) or state['commit'] != spec['commit']:
+                target = target.with_name(f'{target.name}-{sha(patch)[:8]}')
     stamp = target / '.bbmod-source.json'
     if stamp.exists():
         state = json.loads(stamp.read_text())
