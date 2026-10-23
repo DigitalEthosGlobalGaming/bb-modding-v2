@@ -76,4 +76,6 @@ The design of the installer and Mod Manager is in [docs/INSTALLER-AND-MOD-MANAGE
 
 ## Licence
 
-See [LICENSING.md](LICENSING.md). Third-party notices are kept with the files they apply to.
+The Mod Manager, the installer and the SDK are open source and free to use, change and share, with no warranty:
+see [LICENSING.md](LICENSING.md) for exactly which licence covers which part (the mod loader host is GPL-2.0-or-later
+because it is part of bbport). Third-party notices are kept with the files they apply to.

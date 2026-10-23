@@ -15,6 +15,10 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 120
     steps:
+      # The runtime patch must keep LF endings or it will not apply to the LF checkout of bbport.
+      - name: Keep line endings as committed
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
