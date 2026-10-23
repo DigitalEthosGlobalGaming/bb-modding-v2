@@ -26,10 +26,32 @@
       "sha256": "cd23be0989cc1fc75e0470c8f431e108f8fbf427b718ecc70b21f5fd3887c5c7"
     }
   },
-  "runtime": {
-    "repository": "https://github.com/Supermedo/bloodborne_pc.git",
-    "commit": "b3fc78bff0997f75f73e14a5fffeb1141f0cea70",
-    "integration": "src/integration/bbport-modhost.patch",
-    "capabilities": "Current Windows bridge: overlay/tables, shared input, reload, overrides, pad effects/USB haptics and shared game/mod text entry. ABI 1.10 host native services remain fingerprint/profile gated; build and synthetic checks do not establish gameplay behavior."
-  }
+  "default_runtime": "windows-v1.9.4",
+  "runtimes": [
+    {
+      "id": "windows-v1.9.4",
+      "label": "bbport 1.9.4",
+      "repository": "https://github.com/Supermedo/bloodborne_pc.git",
+      "commit": "3fabfa7a7af67a34a6dfc630b6ec2539b68fad4d",
+      "dir": "tools/rt-1.9.4",
+      "integration": "src/integration/windows-v1.9.4.patch",
+      "stock_probe_sha256": [
+        "40fd5b03a6a65e88f40417a85d66e9b4b2823523badc5c274e559ccf5997509d"
+      ],
+      "capabilities": "Current Windows bridge: overlay/tables, shared input, reload, overrides, pad effects/USB haptics and shared game/mod text entry. ABI 1.10 host native services remain fingerprint/profile gated; build and synthetic checks do not establish gameplay behavior."
+    },
+    {
+      "id": "windows-v1.9.2",
+      "label": "bbport 1.9.2",
+      "repository": "https://github.com/Supermedo/bloodborne_pc.git",
+      "commit": "b3fc78bff0997f75f73e14a5fffeb1141f0cea70",
+      "dir": "tools/bloodborne_pc",
+      "integration": "src/integration/bbport-modhost.patch",
+      "stock_probe_sha256": [
+        "05729a9989b78d409409390aa6564ea7038f570fde986a800c6366c29d48105b",
+        "6f1206bca360f90eaa245d6581b27e2d8420306a795e7e2b1aa3015a1cba906b"
+      ],
+      "capabilities": "Current Windows bridge: overlay/tables, shared input, reload, overrides, pad effects/USB haptics and shared game/mod text entry. ABI 1.10 host native services remain fingerprint/profile gated; build and synthetic checks do not establish gameplay behavior."
+    }
+  ]
 }

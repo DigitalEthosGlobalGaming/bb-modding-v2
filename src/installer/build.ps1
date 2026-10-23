@@ -4,7 +4,7 @@ Use -SkipRuntime when no staged runtime exists (the result then installs only th
 Nothing is deployed to a game or port.
 #>
 [CmdletBinding()]
-param([switch]$SkipRuntime, [switch]$Test, [string]$RuntimeStage)
+param([switch]$SkipRuntime, [switch]$Test, [string]$StageRoot)
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
 function Run([string]$dir, [scriptblock]$cmd) { Push-Location $dir; try { & $cmd; if ($LASTEXITCODE -ne 0) { throw "Failed in $dir" } } finally { Pop-Location } }
@@ -13,7 +13,7 @@ Run (Join-Path $here '../manager') { cargo build --release --locked 2>&1 | Write
 if ($Test) { Run (Join-Path $here '../manager') { cargo test --release 2>&1 | Write-Host } }
 
 $args = @{ SkipRuntime = $SkipRuntime.IsPresent }
-if ($RuntimeStage) { $args.RuntimeStage = $RuntimeStage }
+if ($StageRoot) { $args.StageRoot = $StageRoot }
 & (Join-Path $here 'payload/build-payload.ps1') @args
 
 if ($Test) { Run $here { cargo test --release 2>&1 | Write-Host } }

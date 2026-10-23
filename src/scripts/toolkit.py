@@ -16,6 +16,14 @@ ROOT = Path(__file__).resolve().parents[2]
 LOCK = json.loads((Path(__file__).with_name('tools.lock.json')).read_text())
 CONFIG = ROOT/'.local/workspace.json'
 
+def runtime_spec(runtime_id=None):
+    """One supported bbport version: where its source is, which patch applies, what stock it replaces."""
+    rid = runtime_id or LOCK['default_runtime']
+    for spec in LOCK['runtimes']:
+        if spec['id'] == rid:
+            return spec
+    raise ValueError(f"Unknown runtime {rid}; supported: {', '.join(r['id'] for r in LOCK['runtimes'])}")
+
 def run(*arguments, cwd=None, env=None):
     print('+', ' '.join(map(str,arguments)), flush=True)
     subprocess.run(list(map(str,arguments)),cwd=cwd,env=env,check=True)
@@ -278,7 +286,7 @@ def main():
     roll=commands.add_parser('rollback');roll.add_argument('backup',type=Path)
     commands.add_parser('smithbox')
     commands.add_parser('build-runtime')
-    commands.add_parser('deploy-runtime')
+    deploy=commands.add_parser('deploy-runtime');deploy.add_argument('--runtime-id')
     build=commands.add_parser('build-mod',help='Build an independent mod project without deployment')
     build.add_argument('project',type=Path);build.add_argument('--test',action='store_true')
     content=commands.add_parser('content',help='Run the canonical content compiler')
@@ -345,7 +353,7 @@ def main():
         run(shell,'-NoProfile','-ExecutionPolicy','Bypass','-File',
             Path(__file__).with_name('export-map-script-placements.ps1'),'-Output',args.output.resolve())
     elif args.command=='deploy-runtime':
-        cfg=config();stage=ROOT/'.local/runtime-stage'
+        cfg=config();stage=ROOT/'.local/runtime-stage'/runtime_spec(args.runtime_id)['id']
         manifest=json.loads((stage/'manifest.json').read_text())
         files={rel:child(stage,rel) for rel in manifest['files']}
         for rel,path in files.items():

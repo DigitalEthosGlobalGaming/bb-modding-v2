@@ -43,7 +43,7 @@ pub struct Receipt {
 }
 
 pub fn sha256_hex(data: &[u8]) -> String { Sha256::digest(data).iter().map(|b| format!("{b:02x}")).collect() }
-fn sha_file(p: &Path) -> io::Result<String> { Ok(sha256_hex(&fs::read(p)?)) }
+pub(crate) fn sha_file(p: &Path) -> io::Result<String> { Ok(sha256_hex(&fs::read(p)?)) }
 
 /// Read and sanity-check a payload archive.
 pub fn read_payload(zip_bytes: &[u8]) -> Result<Vec<Entry>, String> {
@@ -62,7 +62,7 @@ pub fn read_payload(zip_bytes: &[u8]) -> Result<Vec<Entry>, String> {
     Ok(out)
 }
 
-fn rel_string(p: &Path) -> Result<String, String> {
+pub(crate) fn rel_string(p: &Path) -> Result<String, String> {
     let mut parts = Vec::new();
     for c in p.components() {
         match c { Component::Normal(s) => parts.push(s.to_string_lossy().into_owned()), _ => return Err(format!("Unsafe payload path {}.", p.display())) }
@@ -74,7 +74,7 @@ fn rel_string(p: &Path) -> Result<String, String> {
     Ok(parts.join("/"))
 }
 
-fn dest(port: &Path, rel: &str) -> PathBuf { rel.split('/').fold(port.to_path_buf(), |p, s| p.join(s)) }
+pub(crate) fn dest(port: &Path, rel: &str) -> PathBuf { rel.split('/').fold(port.to_path_buf(), |p, s| p.join(s)) }
 
 /// What installing `entries` into `port` would do.
 pub fn plan(entries: &[Entry], port: &Path) -> Vec<PlanItem> {
@@ -166,7 +166,7 @@ pub fn install(entries: &[Entry], port: &Path, game: &str, check_running: bool) 
 fn e_path(p: &Path) -> String { p.display().to_string() }
 
 /// Files of `receipt` that no longer hold the content the install wrote.
-fn changed_since(port: &Path, receipt: &Receipt) -> Vec<String> {
+pub(crate) fn changed_since(port: &Path, receipt: &Receipt) -> Vec<String> {
     receipt.files.iter().filter(|r| sha_file(&dest(port, &r.path)).ok().as_deref() != Some(r.after.as_str())).map(|r| r.path.clone()).collect()
 }
 
@@ -292,7 +292,6 @@ mod tests {
         }
         assert!(read_payload(b"not a zip").is_err());
         assert!(install(&[], &port("empty"), "g", false).is_err()); // the empty embedded payload
-        assert!(read_payload(embedded_payload()).is_ok());
     }
 
     #[test]

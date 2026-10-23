@@ -4,16 +4,16 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
-from toolkit import ROOT, LOCK, checkout, sha, save
+from toolkit import ROOT, checkout, sha, save, runtime_spec
 
 
 def git(target, *args):
     return subprocess.check_output(['git', '-C', str(target), *args], text=True).strip()
 
 
-def prepare(target=None):
-    target = Path(target).resolve() if target else ROOT / 'tools/bloodborne_pc'
-    spec = LOCK['runtime']
+def prepare(target=None, runtime_id=None):
+    spec = runtime_spec(runtime_id)
+    target = Path(target).resolve() if target else ROOT / spec['dir']
     patch = ROOT / spec['integration']
     stamp = target / '.bbmod-source.json'
     if stamp.exists():
@@ -56,14 +56,14 @@ def prepare(target=None):
         (framework / rel).unlink(missing_ok=True)
     state['framework'] = current
     save(stamp, state)
-    # Default pointer consumed by stage_runtime.py and local diagnostics.
-    if target == ROOT / 'tools/bloodborne_pc':
-        save(ROOT / '.local/runtime-source.json', {k: state[k] for k in ('commit', 'patch_sha256')})
+    save(ROOT / '.local' / f"runtime-source-{spec['id']}.json", {k: state[k] for k in ('commit', 'patch_sha256')})
     print(target)
     return target
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--target', type=Path, help='Fresh separate checkout; default tools/bloodborne_pc')
-    prepare(parser.parse_args().target)
+    parser.add_argument('--target', type=Path, help='Fresh separate checkout; default is the runtime\'s dir in tools.lock.json')
+    parser.add_argument('--runtime-id', help='Supported bbport version (default: default_runtime in tools.lock.json)')
+    args = parser.parse_args()
+    prepare(args.target, args.runtime_id)

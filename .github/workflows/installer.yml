@@ -32,25 +32,38 @@ jobs:
       - name: Publication audit
         run: python src/scripts/audit_publication.py
 
-      # The patched runtime takes a long time to build, so it is cached on everything that affects it.
-      - name: Restore staged runtime
-        id: runtime
+      # One patched runtime per supported bbport version (tools.lock.json). Each takes a long time to
+      # build, so it is cached on everything that affects it.
+      - name: Restore staged runtime 1.9.4
+        id: rt194
         uses: actions/cache@v4
         with:
-          path: .local/runtime-stage
-          key: runtime-${{ hashFiles('src/scripts/tools.lock.json', 'src/integration/**', 'src/host/**', 'sdk/include/**', 'sdk/rust/**') }}
+          path: .local/runtime-stage/windows-v1.9.4
+          key: runtime-1.9.4-${{ hashFiles('src/scripts/tools.lock.json', 'src/integration/windows-v1.9.4.patch', 'src/host/**', 'sdk/include/**', 'sdk/rust/**') }}
+
+      - name: Restore staged runtime 1.9.2
+        id: rt192
+        uses: actions/cache@v4
+        with:
+          path: .local/runtime-stage/windows-v1.9.2
+          key: runtime-1.9.2-${{ hashFiles('src/scripts/tools.lock.json', 'src/integration/bbport-modhost.patch', 'src/host/**', 'sdk/include/**', 'sdk/rust/**') }}
 
       - uses: msys2/setup-msys2@v2
-        if: steps.runtime.outputs.cache-hit != 'true'
+        if: steps.rt194.outputs.cache-hit != 'true' || steps.rt192.outputs.cache-hit != 'true'
         id: msys2
         with:
           msystem: CLANG64
           update: true
 
-      - name: Build runtime
-        if: steps.runtime.outputs.cache-hit != 'true'
+      - name: Build runtime 1.9.4
+        if: steps.rt194.outputs.cache-hit != 'true'
         shell: pwsh
-        run: ./src/scripts/build-runtime.ps1 -InstallDependencies -Msys2Root "${{ steps.msys2.outputs.msys2-location }}"
+        run: ./src/scripts/build-runtime.ps1 -InstallDependencies -Runtime windows-v1.9.4 -Msys2Root "${{ steps.msys2.outputs.msys2-location }}"
+
+      - name: Build runtime 1.9.2
+        if: steps.rt192.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: ./src/scripts/build-runtime.ps1 -Runtime windows-v1.9.2 -Msys2Root "${{ steps.msys2.outputs.msys2-location }}"
 
       - name: Build installer
         shell: pwsh
