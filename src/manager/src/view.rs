@@ -27,7 +27,7 @@ pub fn build() -> Node {
     bdetail = bdetail.child(Node::text("b-source", ""))
         .child(Node::container("bspacer", Layout::Column).size(Size::Fill, Size::Fill))
         .child(Node::button("b-install", "Install")).child(Node::button("b-remove", "Remove"))
-        .child(Node::button("b-add", "Add mod list...")).child(Node::button("b-remove-source", "Remove this mod's list"))
+        .child(Node::button("b-remove-source", "Remove this mod's list"))
         .child(Node::button("b-refresh", "Refresh lists"));
 
     let settings_panel = Node::panel("controls-panel", Layout::Column).size(Size::Fill, Size::Fill).gap(6.0)
@@ -117,7 +117,7 @@ pub fn sync_browse(root: &mut Node, browse: &Browse, mods: &[ModInfo]) {
             let desc_src = match &m.manifest { ManifestState::Loaded(mf) if !mf.description.is_empty() => mf.description.as_str(), _ => m.entry.description.as_str() };
             let desc = wrap(desc_src, 62, DESC_LINES);
             for i in 0..DESC_LINES { set_text(root, &format!("b-desc-{i}"), desc.get(i).map_or("", |s| s.as_str()), None); }
-            set_text(root, "b-source", &format!("From {}", m.source), Some(theme::SECONDARY));
+            set_text(root, "b-source", &format!("From {}   (add lists under Settings > Mod Manager)", m.source), Some(theme::SECONDARY));
         }
         None => { for k in ["b-name", "b-meta", "b-compat", "b-source"] { set_text(root, k, "", None); } for i in 0..DESC_LINES { set_text(root, &format!("b-desc-{i}"), "", None); } }
     }

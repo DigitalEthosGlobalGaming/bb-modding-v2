@@ -58,8 +58,7 @@ struct State {
 
 const OWN_ID: &str = "bbmod.manager";
 const SOURCES_BLOB: &str = "sources.json";
-/// Marks the text dialog that asks for a new mod list source (it is not a setting key).
-const ADD_SOURCE: &str = "@add-source";
+
 
 impl State {
     fn new() -> Self {
@@ -136,13 +135,8 @@ impl State {
                 Ok(TextState::Accepted(s)) => {
                     let (id, key) = (id.clone(), key.clone());
                     self.text = None;
-                    if key == ADD_SOURCE {
-                        let outs = self.browse.add_source(&s);
-                        self.apply(cx, outs);
-                    } else {
-                        self.run(cx, vec![Command::Write { id, key, value: Value::Text(s) }]);
-                        self.load_settings(cx);
-                    }
+                    self.run(cx, vec![Command::Write { id, key, value: Value::Text(s) }]);
+                    self.load_settings(cx);
                 }
                 Ok(TextState::Pending) => {}
                 _ => { self.text = None; }
@@ -221,17 +215,20 @@ impl State {
                 Out::SaveSources(v) => {
                     if let (Some(store), Ok(json)) = (&self.store, serde_json::to_vec(&v)) { let _ = store.write_blob(SOURCES_BLOB, &json); }
                 }
-                Out::AddSourceDialog => match cx.text_entry("Add a mod list: owner/repo or an https link", "", 95) {
-                    Ok(t) => self.text = Some((String::new(), ADD_SOURCE.into(), t)),
-                    Err(e) => self.browse.status = format!("Cannot open the text dialog: {e}"),
-                },
             }
         }
         self.dirty = true;
     }
 
-    fn apply_own_setting(&mut self, key: &str, value: &Value) {
+    fn apply_own_setting(&mut self, cx: &mut Cx, key: &str, value: &Value) {
         match (key, value) {
+            // Entering a mod list in Settings adds it and clears the box for the next one.
+            ("add_list", Value::Text(t)) if !t.trim().is_empty() => {
+                let outs = self.browse.add_source(t);
+                self.apply(cx, outs);
+                if let Err(e) = cx.manager_write_setting(OWN_ID, "add_list", &Value::Text(String::new())) { cx.log_warn(&format!("manager: cannot clear add_list: {e}")); }
+                self.browse_started = true;
+            }
             ("open_key", Value::Keybind(k)) => self.open_key = *k,
             ("pad_combo", Value::Enum(i)) => self.pad_combo = *i,
             _ => {}
@@ -246,6 +243,8 @@ impl Mod for MenuMod {
         cx.subscribe(ui_layer::EVENTS | settings::EVENTS | native::EVENTS)?;
         cx.declare_setting(&Def::keybind("open_key", "Open key", bbmod::key::F2).group("Opening").order(0)
             .help("Keyboard key that opens this menu."))?;
+        cx.declare_setting(&Def::text("add_list", "Add mod list", 95, "").group("Mod lists").order(2)
+            .help("Type owner/repo or an https link to a modlist.json, then confirm. The mods appear in the Browse tab."))?;
         cx.declare_setting(&Def::choice("pad_combo", "Pad combo", &PAD_COMBOS, 1).group("Opening").order(1)
             .help("Controller buttons that open this menu. The game still sees the buttons you press."))?;
         let mut s = State::new();
@@ -272,7 +271,7 @@ impl Mod for MenuMod {
             }
             return;
         }
-        if let Some(c) = event.setting_changed() { s.apply_own_setting(&c.key, &c.value); return; }
+        if let Some(c) = event.setting_changed() { s.apply_own_setting(cx, &c.key, &c.value); return; }
         let events = s.screen.handle(event);
         for (key, kind) in events {
             if key == "browse-list" || key.starts_with("b-") {

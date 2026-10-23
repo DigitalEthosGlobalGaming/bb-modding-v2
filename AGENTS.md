@@ -1,6 +1,6 @@
 # bb-modding
 
-Read README.md, docs/SETUP.md and docs/CONSOLIDATION.md. Use PowerShell on Windows;
+Read DEVELOPERS.md, docs/SETUP.md and docs/CONSOLIDATION.md. Use PowerShell on Windows;
 PowerShell 7 is preferred and required for map placement export. Work from this root.
 Framework source is src/host, SDK is sdk, and active helpers are src/scripts.
 The single active runtime checkout is tools/bloodborne_pc, prepared from tools.lock.json

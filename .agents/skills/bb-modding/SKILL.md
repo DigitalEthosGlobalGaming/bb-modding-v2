@@ -3,7 +3,7 @@ name: bb-modding
 description: Set up this Bloodborne Windows modding toolkit, generate private game references, or create native and content mods using its SDK and tools.
 ---
 
-Read the repository README.md and docs/SETUP.md. Use the root containing setup.ps1;
+Read the repository DEVELOPERS.md and docs/SETUP.md. Use the root containing setup.ps1;
 all paths are relative to it. Run .\bb.ps1 doctor if .local/workspace.json exists.
 
 For setup, obtain the user's game parent folder (contains CUSA03173/uroot) and installed

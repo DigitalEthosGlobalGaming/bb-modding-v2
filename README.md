@@ -1,124 +1,79 @@
-# bb-modding
+# Bloodborne PC Modding Kit
 
-A Windows development toolkit for native bbmod DLLs and Bloodborne content mods.
-Clone the source, select your own game and installed port, and generate your private
-reference workspace. Game files and recovered game code are not distributed here.
+Add mods to Bloodborne on PC. The modding kit installs a mod loader into your existing
+[bbport](https://github.com/DigitalEthosGlobalGaming/bb-modding-v2) setup and an in-game
+**Mod Manager**, where you browse, install, update, switch on and off, and configure mods
+without leaving the game.
 
-Framework, SDK and development workflows are consolidated here. See
-[development consolidation](docs/CONSOLIDATION.md) for the active project locations,
-verified private history archives and cleanup record.
+- **One installer.** Pick your game and bbport folders, review the changes, press Install.
+- **In-game Mod Manager.** Browse mod lists, install and update mods, edit each mod's settings.
+- **Safe to try.** Replaced files are backed up, saves and settings are never touched, and one click removes the kit again.
 
-## Install (players)
+> This is an unofficial community project and is not affiliated with Sony, FromSoftware or Supermedo.
+> You need your own copy of the game. No game files are included or distributed.
 
-You need Bloodborne for PC already running through [bbport](https://github.com/DigitalEthosGlobalGaming/bb-modding-v2)
-(a folder containing `Bloodborne.exe`) and your game files (the folder containing `CUSA03173`, European GOTY
-with update 1.09). Windows 10 or 11, 64-bit.
+## Requirements
 
-1. Download `bb-modding-installer.exe` from the latest GitHub Release, or from the `bb-modding-installer` artifact
-   of a recent run in the repository's Actions tab. Optionally check it against the `.sha256` file next to it.
-2. Close the game and the launcher.
-3. Run the installer. It is not code-signed, so Windows SmartScreen may warn: choose **More info**, then **Run anyway**.
-4. Pick your **game folder** and your **bbport folder**. Each shows a green OK when it is valid.
-5. Review the list of files and press **Install**. Files that are replaced are backed up first.
-6. Start the game. Press **F2** (or L1 + R1 + Touchpad, or the pause menu's **Mods** entry) to open the Mod Manager.
-   Its **Browse** tab lists mods from the official mod list and installs them for you; use **Add mod list...** to
-   add someone else's list.
+- Windows 10 or 11, 64-bit.
+- Bloodborne for PC already working through bbport: a folder containing `Bloodborne.exe` that starts to the title screen.
+- Your game files: the folder that contains `CUSA03173` (European edition with update 1.09).
 
-To undo the install, run the installer again and choose **Uninstall instead** on the review page, or from a terminal:
-`bb-modding-installer.exe --uninstall --port "<bbport folder>"`. Your saves and settings are never touched.
-Mods are native code that runs inside the game, and mod lists are not vetted: install only what you trust.
+## Install
 
-## Start (developers)
+1. Download `bb-modding-installer.exe` from the [latest release](https://github.com/DigitalEthosGlobalGaming/bb-modding-v2/releases/latest).
+   Each release also has a `.sha256` file if you want to verify the download.
+2. Close Bloodborne and the launcher.
+3. Run the installer. The file is not code-signed, so Windows SmartScreen may show a warning. Choose **More info**, then **Run anyway**.
+4. Choose your **game folder** and your **bbport folder**. Each shows a green OK once it is valid.
+5. Check the list of files and press **Install**. Any file that is replaced is backed up first.
+6. Start the game as you normally do.
 
-Open PowerShell in this directory:
+## Using the Mod Manager
 
-```powershell
-.\setup.ps1
-```
+Open it with **F2**, with **L1 + R1 + Touchpad** on a controller, or from the pause menu's **Mods** entry.
 
-Two folder pickers ask for the **game parent folder** (contains
-`CUSA03173/uroot`) and your installed **bbport folder** (contains `Bloodborne.exe`).
-Setup validates European GOTY CUSA03173 update 1.09, installs pinned Smithbox and
-DSLuaDecompiler, then extracts DCX/BND4 references and decompiles Lua/HavokScript.
-Allow at least **60 GiB free** for full extraction; the previous export used about 52 GB.
-Paired texture/animation archives and opaque formats remain available in the original
-game tree; this is a reference export, not a universal conversion of every game format.
+| Tab | What it does |
+| --- | --- |
+| **Mods** | Shows the installed mods. Load or unload one, or reload it after an update. |
+| **Settings** | Each mod's own settings. Under **Mod Manager** you can change the open key and add mod lists. |
+| **Browse** | Lists the mods from your mod lists. Select one to see its details and whether it works with your loader, then press **Install**. |
 
-Missing prerequisites? Use `.\setup.ps1 -InstallPrerequisites`. The script shows system
-installers before running them. See [setup details](docs/SETUP.md) for unattended use,
-smaller extraction, reruns and recovery.
+**Installing a mod.** Open **Browse**, select a mod and press **Install**. The mod is downloaded, checked and loaded.
+**Update** appears when a newer version is available. **Remove** takes the mod out; the previous copy is kept in
+`mod-data/bbmod.manager/previous` inside your bbport folder.
 
-```powershell
-.\bb.ps1 doctor
-.\bb.ps1 smithbox
-.\bb.ps1 new-mod me.my-mod "My Mod"
-.\bb.ps1 build-mod mods/me.my-mod --test
-```
+**Adding a mod list.** The official list is included. To add another, open **Settings > Mod Manager**, choose
+**Add mod list** and enter `owner/repo` (a GitHub repository that contains a `modlist.json`) or an `https://` link to a
+`modlist.json` file. It then appears in **Browse**.
 
-Setup does not deploy anything. A stock runtime does not gain framework support merely
-by selecting it. See [runtime integration and rollback](docs/RUNTIME.md).
+## Uninstall
 
-## Layout
+Run the installer again, press **Next** through to the review page and choose **Uninstall instead**. This restores the
+files the installer replaced and removes the ones it added. Your saves, graphics settings and the mods' settings are not touched.
+If you changed an installed file yourself after installing, it is left alone and the uninstall tells you which one.
 
-| Directory | Contents | Source control |
-| --- | --- | --- |
-| `tools/` | Pinned downloads, tool source, binaries and optional port build | Ignored |
-| `game-unpacked/raw/` | Preserved decompressed archives and archive members | Ignored |
-| `game-unpacked/decompiled/` | UTF-8 recovered scripts with original basenames | Ignored |
-| `mods/` | Your independent mod projects | Ignored |
-| `.agents/` | Toolkit agent skill | Tracked |
-| `src/host/` | Framework host | Tracked |
-| `src/scripts/` | Setup, generation, content and deployment tools | Tracked |
-| `src/integration/`, `src/tests/` | Port integration and synthetic tests | Tracked |
-| `src/manager/` | Mod Manager (`bbmod.manager`), the in-game mod browser and installer | Tracked |
-| `src/installer/` | `bb-modding-installer.exe` for players ([README](src/installer/README.md)) | Tracked |
-| `sdk/` | C ABI and Rust SDK | Tracked; generated local data ignored |
-| `docs/examples/`, `docs/templates/` | Reviewed source examples and starters | Tracked |
-| `.local/` | Machine paths, reports, build stages and rollback backups | Ignored |
+## Troubleshooting
 
-The SDK compiles without any game catalogs. To use your generated private lookups, enable
-its `local-catalogs` Cargo feature. Generated instruction profiles are ignored `*.local.h`
-files; without them, the affected native services fail their compatibility checks.
+| Problem | What to try |
+| --- | --- |
+| The installer says to close the game | Close Bloodborne, the launcher and any `bb-probe` process, then try again. |
+| A folder is not accepted | The game folder must contain `CUSA03173` with update 1.09. The bbport folder must contain `Bloodborne.exe` and `bin\bb-probe.exe`. |
+| The Mod Manager does not open | Check that the installer finished, then look at `bbmods.log` in your bbport folder. |
+| A mod says it needs a newer mod loader | Download the newest installer and run it again. It upgrades in place. |
+| A list shows no mods or an error | Check your internet connection and that the repository or link is spelled correctly. |
+| The game stops starting | Run the installer's uninstall to go back to your previous files, then report the problem with `bbmods.log`. |
 
-## Guides
+## Staying safe
 
-- [How Bloodborne works: game design and interaction patterns](docs/game/README.md)
-- [Setup and troubleshooting](docs/SETUP.md)
-- [Native mods and current SDK](docs/MODDING.md), [Rust API](docs/RUST_SDK.md)
-- [Content overlays](docs/CONTENT.md)
-- [Automatic script annotations and search](docs/SCRIPT-REFERENCES.md)
-- [Runtime build/deploy/rollback](docs/RUNTIME.md)
-- [Agent starter prompt](docs/STARTER-PROMPT.md)
-- [Source provenance and publication boundary](docs/PROVENANCE.md)
-- [Migration inventory](docs/MIGRATION.md) and [validation](docs/VALIDATION.md)
-- [Licensing](LICENSING.md)
+Mods are programs that run inside the game. Mod lists are not vetted, and a mod appearing in a list is not an
+endorsement. Only install mods from people you trust. The Mod Manager downloads over HTTPS, checks files against
+published checksums when a mod provides one, and refuses archives with unsafe paths.
 
-Before committing or packaging:
+## For developers
 
-```powershell
-python src/scripts/audit_publication.py
-python -m unittest discover -s src/tests/toolkit -v
-cargo test --workspace --locked
-```
+Building the kit, writing mods and publishing a mod list are covered in [DEVELOPERS.md](DEVELOPERS.md).
+The design of the installer and Mod Manager is in [docs/INSTALLER-AND-MOD-MANAGER.md](docs/INSTALLER-AND-MOD-MANAGER.md).
 
-The pinned runtime integration includes overlay/tables, shared input, reload, overrides,
-pad effects/USB haptics and shared game/mod text entry. Native services remain gated by
-matching profiles and capabilities. Compatibility checks and synthetic tests are not
-gameplay validation. Inspector/Openborne schemas are excluded.
+## Licence
 
-## Existing local projects
-
-Retained projects remain under `../modding/mods/` and the independent adaptive-trigger
-repository under `../modding/bb-modding-adaptive-triggers/`. Their toolkit dependencies
-point here; duplicate copies formerly under `mods/` have been archived and removed.
-New projects can use `mods/` or their own repository. Run daily workflows from here:
-
-```powershell
-.\bb.ps1 build-mod ../modding/mods/character-observer --test
-.\bb.ps1 content verify
-.\bb.ps1 native-assets
-.\bb.ps1 script-links --mod ../modding/mods/character-observer --check
-.\bb.ps1 map-placements --output .local/map-placements.json
-```
-
-PowerShell 7 is preferred for build helpers and required for map placement export.
+See [LICENSING.md](LICENSING.md). Third-party notices are kept with the files they apply to.

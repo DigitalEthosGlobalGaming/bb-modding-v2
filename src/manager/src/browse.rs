@@ -23,8 +23,6 @@ pub enum Out {
     Unload(String),
     Load(String),
     SaveSources(Vec<String>),
-    /// Ask for a source in the text dialog; the result comes back through [`Browse::add_source`].
-    AddSourceDialog,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -171,7 +169,6 @@ impl Browse {
             ("browse-list", EventKind::Selected(id)) => self.select(&id),
             ("browse-list", EventKind::RowActivated(_)) | ("b-install", EventKind::Activated) => self.install(mods),
             ("b-remove", EventKind::Activated) => self.remove(mods),
-            ("b-add", EventKind::Activated) => vec![Out::AddSourceDialog],
             ("b-refresh", EventKind::Activated) => self.refresh(),
             ("b-remove-source", EventKind::Activated) => self.remove_source(),
             _ => vec![],
