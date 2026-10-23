@@ -12,6 +12,14 @@ without leaving the game.
 > This is an unofficial community project and is not affiliated with Sony, FromSoftware or Supermedo.
 > You need your own copy of the game. No game files are included or distributed.
 
+## Supported bbport versions
+
+The mod loader is built into bbport's own runtime, so the installer carries one build for each bbport release
+it supports and picks the one that matches what you have. It currently supports **bbport 1.9.4** and **bbport 1.9.2**.
+If your bbport is a different version, the installer says so and **changes nothing**: look for a newer installer, or
+use a supported bbport version. Updating bbport later replaces the runtime and removes the mod loader; run the
+installer again afterwards (it detects the new version and installs the matching loader).
+
 ## Requirements
 
 - Windows 10 or 11, 64-bit.
@@ -59,6 +67,8 @@ If you changed an installed file yourself after installing, it is left alone and
 | The installer says to close the game | Close Bloodborne, the launcher and any `bb-probe` process, then try again. |
 | A folder is not accepted | The game folder must contain `CUSA03173` with update 1.09. The bbport folder must contain `Bloodborne.exe` and `bin\bb-probe.exe`. |
 | The Mod Manager does not open | Check that the installer finished, then look at `bbmods.log` in your bbport folder. |
+| The installer says your bbport version is not supported | Your bbport is newer or older than the versions listed above. Nothing was changed. Check the releases page for a newer installer. |
+| The game stopped working after I updated bbport | Run the installer again. It undoes its old files and installs the loader for your new bbport version. If your version is not supported yet, choose **Uninstall instead** to get back to plain bbport. |
 | A mod says it needs a newer mod loader | Download the newest installer and run it again. It upgrades in place. |
 | A list shows no mods or an error | Check your internet connection and that the repository or link is spelled correctly. |
 | The game stops starting | Run the installer's uninstall to go back to your previous files, then report the problem with `bbmods.log`. |

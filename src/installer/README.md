@@ -6,6 +6,11 @@ Mod Manager. Design and rationale: [docs/INSTALLER-AND-MOD-MANAGER.md](../../doc
 
 ## Use
 
+The installer carries a patched runtime for each supported bbport version and picks the one that matches the player's
+`bb-probe.exe` (by SHA-256). An unknown version is refused with nothing changed (`--runtime <id>` forces one; use with care).
+Installing again undoes the previous install first, so backups always hold the player's own bbport files and an
+updated bbport is never overlaid with an older build. `--detect --port <dir>` prints the detected version.
+
 Run the exe and follow the pages: welcome, folders (validated live: game `CUSA03173` update 1.09,
 bbport with `Bloodborne.exe` and `bb-probe.exe`), review (add / replace / same per file), install.
 It refuses to run while the game or launcher is open. Scripted use:
@@ -49,6 +54,8 @@ The runtime is built with MSYS2 and cached on its inputs. That workflow has not 
 | Path | Contents |
 | --- | --- |
 | `src/validate.rs` | Game (PARAM.SFO) and port checks |
-| `src/install.rs` | Payload reading, plan, install with backups, uninstall |
+| `src/payload.rs` | Payload format and bbport version detection |
+| `src/auto.rs` | Choosing the runtime, clean reinstall |
+| `src/install.rs` | File plan, install with backups, uninstall |
 | `src/main.rs` | Wizard (egui) and command-line mode |
 | `payload/` | Payload assembly script; the built zip is ignored |

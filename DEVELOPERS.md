@@ -111,3 +111,25 @@ PowerShell 7 is preferred for build helpers and required for map placement expor
 - Mod Manager (`bbmod.manager`): [src/manager](src/manager/README.md). Add lists from its Settings tab.
 - Design and formats (`modlist.json`, `mod.toml`, release assets): [docs/INSTALLER-AND-MOD-MANAGER.md](docs/INSTALLER-AND-MOD-MANAGER.md).
 - To be installable from a list, a mod needs a GitHub repository with `mod.toml` at its root and a GitHub Release holding a ZIP of its mod folder (optionally with `<zip>.sha256`); the list entry points at the repository. The official list is `DigitalEthosGlobalGaming/bb-modding-mod-list`.
+
+## Supporting another bbport version
+
+The mod loader host is compiled into `bb-probe.exe` by a patch applied to the bbport source, so each supported bbport
+release has its own runtime. `src/scripts/tools.lock.json` lists them (`runtimes`: id, bbport commit, patch, the SHA-256
+of the stock `bin/bb-probe.exe` it replaces; `default_runtime` is the newest). The installer embeds every runtime that is
+staged and recognises a player's version by that hash, refusing (and changing nothing) when it matches none.
+
+To add a release:
+
+```powershell
+python src/scripts/add_runtime.py windows-v1.9.5 --dry-run   # does the current patch apply to that tag?
+python src/scripts/add_runtime.py windows-v1.9.5             # add it to tools.lock.json (reads the stock hash from the release)
+.\bb.ps1 build-runtime -Runtime windows-v1.9.5               # builds and stages .local/runtime-stage/windows-v1.9.5
+.\src\installer\build.ps1 -Test                             # new installer with every staged runtime
+```
+
+If the patch does not apply, rebase it: in a checkout of the new tag run `git apply --reject <patch>`, fix the rejected
+hunks (usually a few lines in `build.sh` or `gpu/CMakeLists.txt`), `git add -A`, export with `git diff --cached --binary`
+to `src/integration/<tag>.patch`, and pass it with `--patch`. Then add a cache step for it to
+`.github/workflows/installer.yml`. A runtime that compiles is not a tested one: run the game with it before releasing.
+Keep `*.patch` files LF (`.gitattributes` does).

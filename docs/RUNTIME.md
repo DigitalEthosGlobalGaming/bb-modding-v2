@@ -4,6 +4,9 @@ Selecting an installation validates its files; it does not prove ABI capabilitie
 `doctor` reports an indicative framework marker and explicitly leaves capability/gameplay
 verification false. A compatible running host must still pass SDK table-size/capability checks.
 
+Several bbport releases are supported at once (see `runtimes` in `tools.lock.json` and `add_runtime.py`); each is
+built with `.b.ps1 build-runtime -Runtime <id>` and staged in `.local/runtime-stage/<id>`. The text below describes one of them.
+
 The reproducible source path pins Supermedo/bloodborne_pc
 `b3fc78bff0997f75f73e14a5fffeb1141f0cea70` (the upstream keyboard/mouse merge),
 then applies `src/integration/bbport-modhost.patch`. This brings the authored local
